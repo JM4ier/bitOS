@@ -20,7 +20,6 @@ pub extern "C" fn _start() -> ! {
     for _ in 0..100 {
         print!("-");
         x += 1;
-        for _ in 0..100000 {}
     }
     rust_os::hlt_loop()
 }
