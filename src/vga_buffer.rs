@@ -136,7 +136,6 @@ macro_rules! println {
     ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
 }
 
-use crate::{exit_qemu, QemuExitCode};
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write;
@@ -158,8 +157,7 @@ pub fn _print(args: fmt::Arguments) {
     });
 }
 
-use crate::{serial_print, serial_println};
-use x86_64::instructions::interrupts;
+use crate::{serial_println};
 
 #[test_case]
 fn test_println_simple() {

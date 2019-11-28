@@ -1,17 +1,22 @@
 #![no_std]
 #![cfg_attr(test, no_main)]
 #![feature(custom_test_frameworks)]
+#![feature(alloc_error_handler)]
 #![feature(abi_x86_interrupt)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
+extern crate alloc;
+
 use core::panic::PanicInfo;
+use linked_list_allocator::LockedHeap;
 
 pub mod serial;
 pub mod vga_buffer;
 pub mod interrupts;
 pub mod gdt;
 pub mod memory;
+pub mod allocator;
 
 #[cfg(test)]
 use bootloader::{entry_point, BootInfo};
@@ -60,6 +65,14 @@ pub fn exit_qemu(exit_code: QemuExitCode) {
     }
 }
 
+#[global_allocator]
+static ALLOCATOR: LockedHeap = LockedHeap::empty();
+
+#[alloc_error_handler]
+fn alloc_error_handler(layout: alloc::alloc::Layout) -> ! {
+    panic!("ALLOCATION ERROR: {:?}", layout)
+}
+
 pub fn test_runner(tests: &[&dyn Fn()]) {
     serial_println!("Running {} tests", tests.len());
     for (i, test) in tests.iter().enumerate() {
@@ -89,3 +102,4 @@ pub fn test_breakpoint_exception() {
     x86_64::instructions::interrupts::int3();
     serial_println!("[ok]");
 }
+
