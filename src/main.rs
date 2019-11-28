@@ -29,10 +29,26 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let x = Box::new(42);
     println!("No crash!!");
 
+    cause_heap_overflow();
+
     #[cfg(test)]
     test_main();
 
     rust_os::hlt_loop()
+}
+
+struct Link {
+    prev: Option<Box<Link>>,
+}
+
+fn cause_heap_overflow() {
+    println!("This should cause a heap overflow");
+    let genesis = Link{prev: None};
+    let mut curr = Box::new(genesis);
+    for _ in 0..1000000 {
+        curr = Box::new(Link{prev: Some(curr)});
+    }
+    println!("Somehow this didn't cause a heap overflow");
 }
 
 fn cause_page_fault() {
