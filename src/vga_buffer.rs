@@ -3,6 +3,10 @@ use volatile::Volatile;
 use lazy_static::lazy_static;
 use spin::Mutex;
 
+use crate::serial_println;
+#[cfg(test)]
+use crate::serial_print;
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -153,14 +157,23 @@ pub fn _print(args: fmt::Arguments) {
             // lock dropped when going out of scope
         }
         WRITER.lock().write_fmt(args).unwrap();
-        serial_println!("{}", args); // debug
+        //serial_println!("{}", args); // debug
     });
 }
 
-use crate::{serial_println};
+#[test_case]
+fn sleep_test() {
+    use x86_64::instructions::interrupts;
+    serial_print!("sleep_test... ");
+    interrupts::without_interrupts(|| {
+        for _ in 0..1_000_000 {}
+    });
+    serial_println!("[ok]");
+}
 
 #[test_case]
 fn test_println_simple() {
+    use x86_64::instructions::interrupts;
     interrupts::without_interrupts(|| {
         serial_print!("test_println_simple... ");
         println!("test");
@@ -170,14 +183,14 @@ fn test_println_simple() {
 
 #[test_case]
 fn test_println_many() {
+    use x86_64::instructions::interrupts;
     serial_print!("test_println_many... ");
-    //interrupts::without_interrupts(|| {
+    interrupts::without_interrupts(|| {
         for i in 0..500 {
-            println!("test qwertzuiop  {}", i);
-            for _ in 0..10000{
-            }
+            println!("test qwertzuiop {}", i);
+            for _ in 0..10000{}
         }
-    //});
+    });
     serial_println!("[ok]");
 }
 
