@@ -112,6 +112,17 @@ impl Writer {
             self.buffer.chars[row][col].write(blank);
         }
     }
+
+    fn delete_character(&mut self) {
+        if self.column_position == 0 {
+            return;
+        }
+        self.column_position -= 1;
+        self.buffer.chars[BUFFER_HEIGHT-1][self.column_position].write(ScreenChar {
+            ascii_character: b' ',
+            color_code: self.color_code,
+        });
+    }
 }
 
 lazy_static! {
@@ -158,6 +169,13 @@ pub fn _print(args: fmt::Arguments) {
         }
         WRITER.lock().write_fmt(args).unwrap();
         //serial_println!("{}", args); // debug
+    });
+}
+
+pub fn backspace() {
+    use x86_64::instructions::interrupts;
+    interrupts::without_interrupts(|| {
+        WRITER.lock().delete_character();
     });
 }
 
