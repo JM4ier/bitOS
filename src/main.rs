@@ -11,30 +11,50 @@ use x86_64::{VirtAddr, structures::paging::Page};
 
 extern crate alloc;
 use rust_os::allocator;
-use alloc::boxed::Box;
 
 entry_point!(kernel_main);
 pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
-    println!("Boot stage started");
+    println!("Boot started");
     rust_os::init();
     println!("Boot stage 1 completed");
 
+    // initializing kernel heap
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
     let mut mapper = unsafe { memory::init(phys_mem_offset) };
     let mut frame_allocator = unsafe{ memory::BootInfoFrameAllocator::init(&boot_info.memory_map) };
     allocator::init_heap(&mut mapper, &mut frame_allocator)
         .expect("Heap initialization failed");
-    
-    println!("Trying to use heap allocation...");
-    let x = Box::new(42);
-    println!("No crash!!");
+    println!("Boot stage 2 completed");
+    println!("Boot complete\n");
 
-    cause_heap_overflow();
+    demonstrate_heap();
+    //cause_heap_overflow();
 
     #[cfg(test)]
     test_main();
 
     rust_os::hlt_loop()
+}
+
+use alloc::{boxed::Box, vec, vec::Vec, rc::Rc};
+fn demonstrate_heap() {
+    println!("Demonstrating heap");
+    let heap_value = Box::new(42);
+    println!("heap_value at {:p}", heap_value);
+
+    let mut vec = Vec::new();
+    for i in 0..500 {
+        vec.push(i);
+    }
+    println!("vec at {:p}", vec.as_slice());
+
+    let reference_counted = Rc::new(vec![1, 2, 3]);
+    let cloned_reference = reference_counted.clone();
+    println!("current reference count is {}", Rc::strong_count(&cloned_reference));
+    core::mem::drop(reference_counted);
+    println!("reference count is {} now", Rc::strong_count(&cloned_reference));
+
+    println!("No crash!");
 }
 
 struct Link {
