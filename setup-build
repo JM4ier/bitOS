@@ -1,0 +1,7 @@
+rustup override add nightly
+
+cargo install cargo-xbuild
+cargo install bootimage --version "^0.7.7"
+
+rustup component add rust-src
+rustup component add llvm-tools-preview
