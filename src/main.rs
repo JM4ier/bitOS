@@ -5,9 +5,9 @@
 #![reexport_test_harness_main = "test_main"]
 
 use core::panic::PanicInfo;
-use rust_os::{print, println, memory};
+use rust_os::{println, memory};
 use bootloader::{BootInfo, entry_point};
-use x86_64::{VirtAddr, structures::paging::Page};
+use x86_64::{VirtAddr};
 
 extern crate alloc;
 use rust_os::allocator;
@@ -61,7 +61,7 @@ struct Link {
     prev: Option<Box<Link>>,
 }
 
-fn cause_heap_overflow() {
+fn _cause_heap_overflow() {
     println!("This should cause a heap overflow");
     let genesis = Link{prev: None};
     let mut curr = Box::new(genesis);
@@ -71,7 +71,7 @@ fn cause_heap_overflow() {
     println!("Somehow this didn't cause a heap overflow");
 }
 
-fn cause_page_fault() {
+fn _cause_page_fault() {
     let ptr = 0x20301b as *mut u32;
     unsafe {*ptr = 0; }
 }
@@ -88,3 +88,4 @@ fn panic(info: &PanicInfo) -> ! {
 fn panic(info: &PanicInfo) -> ! {
     rust_os::test_panic_handler(info)
 }
+

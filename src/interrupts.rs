@@ -1,5 +1,5 @@
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
-use crate::{print, println, QemuExitCode, exit_qemu};
+use crate::{print, println};
 use lazy_static::lazy_static;
 use crate::gdt;
 use pic8259_simple::ChainedPics;
@@ -40,7 +40,7 @@ extern "x86-interrupt" fn double_fault_handler (stack_frame: &mut InterruptStack
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
 
-pub static PICS: spin::Mutex<ChainedPics> = 
+pub static PICS: spin::Mutex<ChainedPics> =
 spin::Mutex::new(unsafe{ ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET) });
 
 #[derive(Debug, Clone, Copy)]
@@ -73,7 +73,7 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: &mut Interrup
     use crate::vga_buffer;
 
     lazy_static! {
-        static ref KEYBOARD: Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>> = 
+        static ref KEYBOARD: Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>> =
             Mutex::new(Keyboard::new(layouts::Us104Key, ScancodeSet1));
     }
 
