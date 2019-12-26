@@ -57,6 +57,7 @@ fn demonstrate_heap() {
     println!("No crash!");
 }
 
+#[allow(dead_code)]
 struct Link {
     prev: Option<Box<Link>>,
 }
