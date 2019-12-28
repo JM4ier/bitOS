@@ -3,6 +3,7 @@
 #![feature(custom_test_frameworks)]
 #![feature(alloc_error_handler)]
 #![feature(abi_x86_interrupt)]
+#![feature(const_generics)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
@@ -36,7 +37,7 @@ fn test_kernel_main(_boot_info: &'static BootInfo) -> ! {
 pub fn init() {
     gdt::init();
     interrupts::init_idt();
-    unsafe { 
+    unsafe {
         let mut pics = interrupts::PICS.lock();
         pics.initialize();
         drop(pics);
