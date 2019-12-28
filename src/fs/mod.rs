@@ -1,3 +1,6 @@
+use core::mem::{size_of, transmute};
+use core::ptr::Unique;
+
 /// Error type for file system errors
 pub enum FsError {
     InvalidIndex,
@@ -52,11 +55,11 @@ impl<T: BlockDevice<BLOCK_SIZE>, const BLOCK_SIZE: usize> BlockDeviceArgumentChe
 
 impl<T: Sized, B: BlockDevice<BLOCK_SIZE>, const BLOCK_SIZE: usize> SerdeBlockDevice<T, BLOCK_SIZE> for B {
     fn read(&mut self, index: u64, obj: &mut T) -> FsResult {
-        if core::mem::size_of::<T>() != BLOCK_SIZE {
+        if size_of::<T>() != BLOCK_SIZE {
             Err(FsError::MalformedBuffer)
         } else {
             Ok(self.read_block(index, unsafe{
-                core::mem::transmute::<&mut T, &mut [u8; BLOCK_SIZE]>(obj)
+                transmute::<&mut T, &mut [u8; BLOCK_SIZE]>(obj)
             })?)
         }
     }
@@ -77,22 +80,50 @@ const RAM_BS: usize = 4096;
 
 /// Simple disk that stores the data in memory
 pub struct RamDisk {
-    // TODO indexing blocks
+    block_count: u64,
+    disk_begin: Unique<[u8; RAM_BS]>,
+}
+
+impl RamDisk {
+    pub unsafe fn new (addr: u64, blocks: u64) -> Self {
+        Self {
+            block_count: blocks,
+            disk_begin: Unique::new_unchecked(addr as _),
+        }
+    }
+
+    fn block_slice(&mut self, index: u64) -> &mut [u8] {
+        unsafe {
+            let block_ptr = self.disk_begin.as_ptr();
+            let offset = RAM_BS as isize + index as isize;
+            &mut *block_ptr.offset(offset)
+        }
+    }
+}
+
+fn copy<T: Copy>(input: &[T], output: &mut [T], size: usize) {
+    for i in 0..size{
+        output[i] = input[i];
+    }
 }
 
 impl BlockDevice<RAM_BS> for RamDisk {
 
     fn blocks(&self) -> u64 {
-        1 << 16 // 256 MiB
+        self.block_count
     }
+
     fn read_block(&mut self, index: u64, buffer: &mut [u8; RAM_BS]) -> FsResult {
         self.check_args(index)?;
-        // TODO read
+        let block = self.block_slice(index);
+        copy(block, buffer, RAM_BS);
         Ok(())
     }
+
     fn write_block(&mut self, index: u64, buffer: &[u8; RAM_BS]) -> FsResult {
         self.check_args(index)?;
-        // TODO write
+        let block = self.block_slice(index);
+        copy(buffer, block, RAM_BS);
         Ok(())
     }
 }

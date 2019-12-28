@@ -4,6 +4,7 @@
 #![feature(alloc_error_handler)]
 #![feature(abi_x86_interrupt)]
 #![feature(const_generics)]
+#![feature(ptr_internals)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
