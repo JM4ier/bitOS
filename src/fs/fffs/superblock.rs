@@ -1,4 +1,3 @@
-use crate::fs;
 use super::*;
 use core::mem;
 
@@ -34,6 +33,9 @@ pub struct SuperBlock {
 
     /// block size (this field is at the moment always 4096, but maybe it will be variable one day
     pub block_size: u64,
+
+    /// Size of a node in bytes
+    pub node_size: u64,
 
     /// number of blocks in block group
     pub block_group_size: u64,
@@ -80,6 +82,7 @@ impl SuperBlock {
             free_blocks: blocks - reserved,
             super_block_index: superblock_addr(),
             block_size: BLOCK_SIZE as u64,
+            node_size: mem::size_of::<Node>() as u64,
             block_group_size: BLOCK_GROUP_SIZE,
             block_group_node_count: NODES_PER_GROUP,
             last_mount: 0, // TODO current time
@@ -101,6 +104,10 @@ impl SuperBlock {
     pub fn mark_mounted(&mut self) {
         self.mount_count += 1;
         // TODO update self.last_mount
+    }
+
+    pub fn node_reserved_blocks_per_group (&self) -> u64 {
+        self.block_group_node_count * self.node_size / self.block_size
     }
 }
 

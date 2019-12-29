@@ -1,12 +1,9 @@
 //! first fucking file system
 
-use core::cmp::PartialEq;
-use core::marker::PhantomData;
-use core::mem;
 use core::default::Default;
-use crate::fs::{self, FsResult, FsError, SerdeBlockDevice};
+use crate::fs::{FsResult, FsError, BlockDevice, SerdeBlockDevice};
+use alloc::vec;
 
-use self::super::bs::Size4KiB;
 
 pub mod perm;
 use self::perm::*;
@@ -26,16 +23,12 @@ pub const NODES_PER_GROUP: u64 = 1536;
 
 pub type Time = i64;
 
-pub struct FileSystem<D>
-where D: fs::BlockDevice<Size4KiB, BLOCK_SIZE>,
-{
+pub struct FileSystem<D: BlockDevice> {
     device: D,
     superblock: SuperBlock,
 }
 
-impl<D> FileSystem<D>
-where D: fs::BlockDevice<Size4KiB, BLOCK_SIZE>
-{
+impl<D: BlockDevice> FileSystem<D> {
 
     /// takes the given blockdevice and tries to read it as this fs
     pub fn mount(mut device: D) -> FsResult<FileSystem<D>> {
@@ -47,7 +40,6 @@ where D: fs::BlockDevice<Size4KiB, BLOCK_SIZE>
             let file_system = Self {
                 device,
                 superblock,
-                _phantom: PhantomData,
             };
             // TODO load bgdt and initialize stuff
             Ok(file_system)
@@ -70,13 +62,13 @@ where D: fs::BlockDevice<Size4KiB, BLOCK_SIZE>
         let mut file_system = Self {
             device,
             superblock,
-            _phantom: PhantomData,
         };
-        file_system.init_bgdt()?;
+        file_system.init_block_groups()?;
         Ok(file_system)
     }
 
-    fn init_bgdt(&mut self) -> FsResult<()> {
+    /// Initializes the block group descriptor table and all the block groups
+    fn init_block_groups(&mut self) -> FsResult<()> {
         // number of block groups
         let block_group_count = self.superblock.blocks / self.superblock.block_group_size;
 
@@ -90,25 +82,62 @@ where D: fs::BlockDevice<Size4KiB, BLOCK_SIZE>
                 let n = i * BGD_PER_BLOCK as u64 + k as u64;
                 bgdt[k] = self.create_bg_desc(n)?;
             }
+            self.device.write(i + 1, &bgdt)?;
         }
         Ok(())
     }
 
+    /// Initializes the block group with the specified `index` and returns the associated
+    /// `BlockGroupDescriptor`.
     fn create_bg_desc (&mut self, index: u64) -> FsResult<BlockGroupDescriptor> {
-        let reserved_offset = self.superblock.reserved;
-        let group_size = self.superblock.block_group_size;
+        let supr = &mut self.superblock;
+        let reserved_offset = supr.reserved;
+        let group_size = supr.block_group_size;
         let group_offset = reserved_offset + index * group_size;
-        let empty_block = [0; BLOCK_SIZE];
 
-        for i in 0..3 {
-            self.device.write_block(group_offset + i, &empty_block)?;
+        // empty block used to overwrite blocks on the blockdevice
+        let empty_block = vec![0u8; supr.block_size as usize].into_boxed_slice();
+
+        let descriptor = BlockGroupDescriptor::new(
+            RawBlockAddr::new(group_offset),
+            (supr.block_group_size - supr.node_reserved_blocks_per_group() - 2) as u16,
+            supr.block_group_node_count as u16,
+            0,
+        );
+
+        // override node usage table
+        self.device.write_block(descriptor.node_usage_address().as_u64(), &empty_block)?;
+
+        let mut reserved_block_bitmap = empty_block;
+        for (i, _node) in descriptor.node_blocks_begin().until(descriptor.node_blocks_end(&supr)).enumerate() {
+             set_bit(&mut reserved_block_bitmap, 2 + i as usize, true);
+             // not needed to clear the node
         }
 
+        // overwrite block usage buffer to reserve blocks for the node table
+        self.device.write_block(descriptor.node_usage_address().as_u64(), &reserved_block_bitmap)?;
 
-        panic!("Unimplemented");
+        Ok(descriptor)
     }
 }
 
+fn set_bit(bitmap: &mut [u8], index: usize, value: bool) {
+    let byte = index / 8;
+    let bit = index % 8;
+    let bitmask = 1 << bit;
+    if value {
+        bitmap[byte] |= bitmask;
+    } else {
+        bitmap[byte] &= !bitmask;
+    }
+}
+
+fn get_bit(bitmap: &mut [u8], index: usize) -> bool {
+    let byte = index / 8;
+    let bit = index % 8;
+    let bitmask = 1 << bit;
+    bitmap[byte] & bitmask > 0
+}
 
 
 #[test_case]
@@ -126,3 +155,4 @@ fn test_fffs_struct_sizes () {
     assert_eq!(size_of::<Permission>(), 2);
     serial_println!("[ok]");
 }
+
