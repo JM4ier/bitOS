@@ -3,6 +3,7 @@ use core::ptr::Unique;
 use core::marker::PhantomData;
 
 pub mod rfs;
+pub mod fffs;
 pub mod bs;
 
 use bs::BlockSize;
@@ -23,10 +24,13 @@ pub enum FsError {
 
     /// no permission to access path
     AccessViolation,
+
+    /// SuperBlock invalid or not found
+    InvalidSuperBlock,
 }
 
 /// Result type for file system operations
-pub type FsResult = Result<(), FsError>;
+pub type FsResult<T> = Result<T, FsError>;
 
 /// Generic device that can be read from or written to on a block by block basis
 pub trait BlockDevice<S: BlockSize<BS>, const BS: usize> {
@@ -36,11 +40,11 @@ pub trait BlockDevice<S: BlockSize<BS>, const BS: usize> {
 
     /// Basic read operation:
     /// reads block from `self` into `buffer`
-    fn read_block(&mut self, index: u64, buffer: &mut [u8; BS]) -> FsResult;
+    fn read_block(&mut self, index: u64, buffer: &mut [u8; BS]) -> FsResult<()>;
 
     /// Basic write operation:
     /// writes `buffer` to `self`
-    fn write_block(&mut self, index: u64, buffer: &[u8; BS]) -> FsResult;
+    fn write_block(&mut self, index: u64, buffer: &[u8; BS]) -> FsResult<()>;
 }
 
 /// This trait allows `Sized` types to be read and written to and from the block device.
@@ -49,20 +53,20 @@ pub trait BlockDevice<S: BlockSize<BS>, const BS: usize> {
 pub trait SerdeBlockDevice<T: Sized, S: BlockSize<BS>, const BS: usize> {
     /// Tries to read from `self` and write the raw bytes to `obj` and
     /// returns `Err(FsError::MalformedBuffer)` if the memory representation of `T` has not the exact size of `BLOCK_SIZE`
-    fn read(&mut self, index: u64, obj: &mut T) -> FsResult;
+    fn read(&mut self, index: u64, obj: &mut T) -> FsResult<()>;
 
     /// Tries to read from `obj` and write the raw bytes to `self` and
     /// returns `Err(FsError::MalformedBuffer)` if the memory representation of `T` has not the exact size of `BLOCK_SIZE`
-    fn write(&mut self, index: u64, obj: &mut T) -> FsResult;
+    fn write(&mut self, index: u64, obj: &mut T) -> FsResult<()>;
 }
 
 /// Simple trait that checks if the I/O operation is valid based on limited information about the block device
 trait BlockDeviceArgumentChecks<S: BlockSize<BS>, const BS: usize> {
-    fn check_args(&self, index: u64) -> FsResult;
+    fn check_args(&self, index: u64) -> FsResult<()>;
 }
 
 impl<T: BlockDevice<S, BS>, S: BlockSize<BS>, const BS: usize> BlockDeviceArgumentChecks<S, BS> for T {
-    fn check_args(&self, index: u64) -> FsResult {
+    fn check_args(&self, index: u64) -> FsResult<()> {
         if index >= self.blocks() {
             Err(FsError::InvalidIndex)
         } else {
@@ -72,7 +76,7 @@ impl<T: BlockDevice<S, BS>, S: BlockSize<BS>, const BS: usize> BlockDeviceArgume
 }
 
 impl<T: Sized, S: BlockSize<BS>, B: BlockDevice<S, BS>, const BS: usize> SerdeBlockDevice<T, S, BS> for B {
-    fn read(&mut self, index: u64, obj: &mut T) -> FsResult {
+    fn read(&mut self, index: u64, obj: &mut T) -> FsResult<()> {
         if size_of::<T>() != BS {
             Err(FsError::MalformedBuffer)
         } else {
@@ -82,7 +86,7 @@ impl<T: Sized, S: BlockSize<BS>, B: BlockDevice<S, BS>, const BS: usize> SerdeBl
         }
     }
 
-    fn write(&mut self, index: u64, obj: &mut T) -> FsResult {
+    fn write(&mut self, index: u64, obj: &mut T) -> FsResult<()> {
         if core::mem::size_of::<T>() != BS {
             Err(FsError::MalformedBuffer)
         } else {
@@ -131,14 +135,14 @@ impl BlockDevice<bs::Size4KiB, 4096> for RamDisk {
         self.block_count
     }
 
-    fn read_block(&mut self, index: u64, buffer: &mut [u8; RAM_BS]) -> FsResult {
+    fn read_block(&mut self, index: u64, buffer: &mut [u8; RAM_BS]) -> FsResult<()> {
         self.check_args(index)?;
         let block = self.block_slice(index);
         copy(block, buffer, RAM_BS);
         Ok(())
     }
 
-    fn write_block(&mut self, index: u64, buffer: &[u8; RAM_BS]) -> FsResult {
+    fn write_block(&mut self, index: u64, buffer: &[u8; RAM_BS]) -> FsResult<()> {
         self.check_args(index)?;
         let block = self.block_slice(index);
         copy(buffer, block, RAM_BS);
@@ -171,16 +175,16 @@ pub trait FileSystem<S: BlockSize<BS>, const BS: usize> : Sized {
     fn open(path: Path) -> Result<i64, FsError>;
 
     /// deletes a file or directory
-    fn delete(path: Path) -> FsResult;
+    fn delete(path: Path) -> FsResult<()>;
 
     /// clears the file, but does not delete it
-    fn clear(path: Path) -> FsResult;
+    fn clear(path: Path) -> FsResult<()>;
 
     /// creates a new file at the path
-    fn create_file(path: Path) -> FsResult;
+    fn create_file(path: Path) -> FsResult<()>;
 
     /// creates a new directory at the path
-    fn create_directory(path: Path) -> FsResult;
+    fn create_directory(path: Path) -> FsResult<()>;
 
 }
 
@@ -200,14 +204,14 @@ impl<E: Encryption, B: BlockDevice<S, BS>, S: BlockSize<BS>, const BS: usize>  B
     fn blocks(&self) -> u64 {
         self.device.blocks()
     }
-    fn read_block(&mut self, index: u64, buffer: &mut [u8; BS]) -> FsResult {
+    fn read_block(&mut self, index: u64, buffer: &mut [u8; BS]) -> FsResult<()> {
         let mut tmp = S::mem_block();
         self.device.read_block(index, &mut tmp)?;
         self.encryption.decrypt(&tmp, buffer);
         Ok(())
     }
 
-    fn write_block(&mut self, index: u64, buffer: &[u8; BS]) -> FsResult {
+    fn write_block(&mut self, index: u64, buffer: &[u8; BS]) -> FsResult<()> {
         let mut tmp = S::mem_block();
         self.encryption.encrypt(&buffer[..], &mut tmp[..]);
         self.device.write_block(index, &tmp)
