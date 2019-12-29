@@ -2,7 +2,6 @@ use core::mem::{size_of, transmute};
 use core::ptr::Unique;
 use core::marker::PhantomData;
 
-pub mod rfs;
 pub mod fffs;
 pub mod bs;
 
