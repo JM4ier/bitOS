@@ -1,8 +1,8 @@
 //! first fucking file system
 
 use core::default::Default;
-use crate::fs::{FsResult, FsError, BlockDevice, SerdeBlockDevice};
-use alloc::vec;
+use crate::fs::{self, Path, AsU8Slice, FsResult, FsError, BlockDevice, SerdeBlockDevice};
+use alloc::{vec, boxed::Box};
 
 
 pub mod perm;
@@ -23,33 +23,14 @@ pub const NODES_PER_GROUP: u64 = 1536;
 
 pub type Time = i64;
 
-pub struct FileSystem<D: BlockDevice> {
-    device: D,
+pub struct FileSystem {
+    device: Box<dyn BlockDevice>,
     superblock: SuperBlock,
 }
 
-impl<D: BlockDevice> FileSystem<D> {
-
-    /// takes the given blockdevice and tries to read it as this fs
-    pub fn mount(mut device: D) -> FsResult<FileSystem<D>> {
-        let mut superblock = SuperBlock::empty();
-        device.read(superblock_addr().as_u64(), &mut superblock)?;
-        if superblock.is_valid() {
-            superblock.mark_mounted();
-            device.write(superblock_addr().as_u64(), &mut superblock)?;
-            let file_system = Self {
-                device,
-                superblock,
-            };
-            // TODO load bgdt and initialize stuff
-            Ok(file_system)
-        } else {
-            Err(FsError::InvalidSuperBlock)
-        }
-    }
-
+impl FileSystem {
     /// creates a new fs on the given `BlockDevice`.
-    pub fn format(mut device: D, name: &[u8]) -> FsResult<FileSystem<D>> {
+    pub fn format(mut device: impl BlockDevice + 'static, name: &[u8]) -> FsResult<FileSystem> {
         let mut part_name = [0; VOLUME_NAME_LEN];
         for (i, b) in name.iter().enumerate() {
             if i >= VOLUME_NAME_LEN {
@@ -60,7 +41,7 @@ impl<D: BlockDevice> FileSystem<D> {
         let mut superblock = SuperBlock::new(device.blocks(), part_name);
         device.write(superblock_addr().as_u64(), &mut superblock)?;
         let mut file_system = Self {
-            device,
+            device: Box::new(device),
             superblock,
         };
         file_system.init_block_groups()?;
@@ -82,7 +63,7 @@ impl<D: BlockDevice> FileSystem<D> {
                 let n = i * BGD_PER_BLOCK as u64 + k as u64;
                 bgdt[k] = self.create_bg_desc(n)?;
             }
-            self.device.write(i + 1, &bgdt)?;
+            self.device.write_block(i + 1, bgdt.as_u8_slice())?;
         }
         Ok(())
     }
@@ -118,6 +99,56 @@ impl<D: BlockDevice> FileSystem<D> {
         self.device.write_block(descriptor.node_usage_address().as_u64(), &reserved_block_bitmap)?;
 
         Ok(descriptor)
+    }
+}
+
+// TODO
+impl fs::FileSystem for FileSystem {
+    fn allowed_chars() -> &'static [u8] {
+        b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-."
+    }
+
+    fn separator() -> u8 {
+        b'/'
+    }
+
+    /// takes the given blockdevice and tries to read it as this fs
+    fn mount<D: BlockDevice + 'static>(device: D) -> FsResult<FileSystem> {
+        let mut device = device;
+        let mut superblock = SuperBlock::empty();
+        device.read(superblock_addr().as_u64(), &mut superblock)?;
+        if superblock.is_valid() {
+            superblock.mark_mounted();
+            device.write(superblock_addr().as_u64(), &mut superblock)?;
+            let file_system = Self {
+                device: Box::new(device),
+                superblock,
+            };
+            // TODO load bgdt and initialize stuff
+            Ok(file_system)
+        } else {
+            Err(FsError::InvalidSuperBlock)
+        }
+    }
+
+    fn open(path: Path) -> Result<i64, FsError> {
+        panic!("Not implemented");
+    }
+
+    fn delete(path: Path) -> FsResult<()> {
+        panic!("Not implemented");
+    }
+
+    fn clear(path: Path) -> FsResult<()> {
+        panic!("Not implemented");
+    }
+
+    fn create_file(path: Path) -> FsResult<()> {
+        panic!("Not implemented");
+    }
+
+    fn create_directory(path: Path) -> FsResult<()> {
+        panic!("Not implemented");
     }
 }
 

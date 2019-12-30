@@ -53,7 +53,7 @@ pub trait SerdeBlockDevice<T> {
 
     /// Tries to read from `obj` and write the raw bytes to `self` and
     /// returns `Err(FsError::MalformedBuffer)` if the memory representation of `T` has not the exact size of `BLOCK_SIZE`
-    fn write(&mut self, index: u64, obj: &T) -> FsResult<()>;
+    fn write(&mut self, index: u64, obj: &mut T) -> FsResult<()>;
 }
 
 /// Simple trait that checks if the I/O operation is valid based on limited information about the block device
@@ -75,19 +75,11 @@ impl<D: BlockDevice> BlockDeviceArgumentChecks for D {
 
 impl<T: Sized, B: BlockDevice> SerdeBlockDevice<T> for B {
     fn read(&mut self, index: u64, obj: &mut T) -> FsResult<()> {
-        let buffer = unsafe {
-            &mut *core::ptr::slice_from_raw_parts_mut((obj as *mut T) as *mut u8,
-                core::mem::size_of::<T>())
-        };
-        Ok(self.read_block(index, buffer)?)
+        self.read_block(index, obj.as_u8_slice_mut())
     }
 
-    fn write(&mut self, index: u64, obj: &T) -> FsResult<()> {
-        let buffer = unsafe {
-            &*core::ptr::slice_from_raw_parts((obj as *const T) as *const u8,
-                core::mem::size_of::<T>())
-        };
-        Ok(self.write_block(index, buffer)?)
+    fn write(&mut self, index: u64, obj: &mut T) -> FsResult<()> {
+        self.write_block(index, obj.as_u8_slice())
     }
 }
 
@@ -150,24 +142,15 @@ impl BlockDevice for RamDisk {
 
 pub struct Path;
 
-pub trait FileSystem : Sized {
-    /// Struct representing root block
-    type RootBlock: Sized;
-
-    /// Struct representing file system node, e.g. a directory or a file
-    type Node: Sized;
-
+pub trait FileSystem : Sized  {
     /// allowed characters in file names
-    fn allowed_chars() -> &'static str;
+    fn allowed_chars() -> &'static [u8];
 
     /// separates directory names
-    fn separator() -> &'static str;
-
-    /// checks if the root block is valid
-    fn is_valid_root_block(root_block: &Self::RootBlock) -> bool;
+    fn separator() -> u8;
 
     /// creates a new file system using the `block_device` or fails if the root block is not valid
-    fn new(block_device: &mut impl BlockDevice, root_block: Self::RootBlock) -> Result<Self, FsError>;
+    fn mount<D: BlockDevice + 'static>(block_device: D) -> Result<Self, FsError>;
 
     /// opens a file / directory and returns a file descriptor
     fn open(path: Path) -> Result<i64, FsError>;
@@ -183,6 +166,24 @@ pub trait FileSystem : Sized {
 
     /// creates a new directory at the path
     fn create_directory(path: Path) -> FsResult<()>;
-
 }
 
+pub trait AsU8Slice: Sized {
+    fn as_u8_slice(&mut self) -> &[u8];
+    fn as_u8_slice_mut(&mut self) -> &mut [u8];
+}
+
+impl<T: Sized> AsU8Slice for T {
+    fn as_u8_slice(&mut self) -> &[u8] {
+        unsafe {
+            &*core::ptr::slice_from_raw_parts_mut((self as *mut T) as *mut u8,
+                core::mem::size_of::<T>())
+        }
+    }
+    fn as_u8_slice_mut(&mut self) -> &mut [u8] {
+        unsafe {
+            &mut *core::ptr::slice_from_raw_parts_mut((self as *mut T) as *mut u8,
+                core::mem::size_of::<T>())
+        }
+    }
+}
