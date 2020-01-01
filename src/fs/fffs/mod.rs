@@ -2,7 +2,7 @@
 
 use core::default::Default;
 use crate::fs::{self, Path, AsU8Slice, FsResult, FsError, BlockDevice, SerdeBlockDevice};
-use alloc::{vec, boxed::Box};
+use alloc::{vec, vec::Vec, boxed::Box};
 
 
 pub mod perm;
@@ -152,6 +152,52 @@ impl FileSystem {
         self.device.read_block(descriptor.node_blocks_begin().offset(block as i64).as_u64(), &mut node_table.as_u8_slice_mut())?;
 
         Ok(node_table[index as usize])
+    }
+
+    fn read_node_content(&mut self, node: Node) -> FsResult<Vec<Block>> {
+        let mut blocks = Vec::new();
+
+        let depth = node.indirection_level as usize + 1;
+        let mut stack = Vec::with_capacity(depth);
+        let mut pstack: Vec<Vec<BlockAddr>> = Vec::with_capacity(depth);
+
+        stack.push(0);
+        pstack.push(node.pointers.to_vec());
+
+        while !stack.is_empty() {
+            let addr = pstack.last().unwrap()[*stack.last().unwrap()];
+
+            if !addr.is_null() {
+                let addr = self.translate_block_addr(addr)?;
+
+                if stack.len() < depth {
+                    // read pointer block
+                    let mut pointer_data = PointerData::empty();
+                    self.device.read_block(addr.as_u64(), &mut pointer_data.as_u8_slice_mut())?;
+                    pstack.push(pointer_data.pointers.to_vec());
+                    stack.push(0);
+                    continue;
+                } else {
+                    // read content block
+                    let mut block = [0u8; BLOCK_SIZE];
+                    self.device.read_block(addr.as_u64(), &mut block)?;
+                    blocks.push(block);
+                }
+
+                // increase index after reading a data block or when a pointer is null
+                while !stack.is_empty() {
+                    let index = stack.pop().unwrap() + 1;
+                    if index >= pstack.last().unwrap().len() {
+                        pstack.pop();
+                    } else {
+                        stack.push(index);
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(blocks)
     }
 
     fn allocate_block() -> BlockAddr {
