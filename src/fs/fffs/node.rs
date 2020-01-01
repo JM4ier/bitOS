@@ -1,10 +1,11 @@
-use super::*;
 use alloc::vec::Vec;
-use super::block::*;
+use super::{*, block::*, pointer::*};
 use crate::fs::*;
 
 use core::cmp::min;
+use alloc::boxed::Box;
 
+#[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum NodeType {
     Directory,
@@ -12,6 +13,7 @@ pub enum NodeType {
     SymLink,
 }
 
+#[derive(Copy, Clone)]
 #[repr(C, align(128))]
 pub struct Node {
     /// the type of the node
@@ -49,6 +51,28 @@ pub struct Node {
     pub pointers: [BlockAddr; 9],
 }
 
+impl Node {
+    fn null() -> Self {
+        Self {
+            node_type: NodeType::File,
+            permission: Permission::default(),
+            user: 0,
+            group: 0,
+            size: 0,
+            created: 0,
+            last_access: 0,
+            last_modified: 0,
+            deleted: 0,
+            indirection_level: 0,
+            pointers: [BlockAddr::null(); 9],
+        }
+    }
+}
+
+pub fn node_table () -> [Node; BLOCK_SIZE / 128] {
+    [Node::null(); BLOCK_SIZE / 128]
+}
+
 pub trait NodeData {
     fn to_blocks(&self) -> Vec<Block>;
     fn from_blocks(node: &Node, blocks: &Vec<Block>) -> Self;
@@ -60,7 +84,7 @@ pub struct DirectoryData {
 
 pub struct DirectoryEntry {
     pub name: Vec<u8>,
-    pub addr: BlockAddr,
+    pub addr: NodeAddr,
 }
 
 impl DirectoryEntry {
@@ -142,7 +166,7 @@ impl NodeData for DirectoryData {
                 offset += size;
 
                 // read address
-                let mut addr = BlockAddr::null();
+                let mut addr = NodeAddr::null();
                 copy_offset(block, &mut addr.as_u8_slice_mut(), 8, (i+1) * 8, 0);
 
                 // add to entries

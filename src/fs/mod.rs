@@ -24,6 +24,8 @@ pub enum FsError {
 
     /// SuperBlock invalid or not found
     InvalidSuperBlock,
+
+    InvalidAddress,
 }
 
 /// Result type for file system operations

@@ -29,7 +29,7 @@ pub struct SuperBlock {
     pub free_blocks: u64,
 
     /// block index of block containing superblock
-    pub super_block_index: RawBlockAddr,
+    pub super_block_index: RawAddr,
 
     /// block size (this field is at the moment always 4096, but maybe it will be variable one day
     pub block_size: u64,
@@ -106,8 +106,19 @@ impl SuperBlock {
         // TODO update self.last_mount
     }
 
+    /// reserved blocks for node table in a single block group
     pub fn node_reserved_blocks_per_group (&self) -> u64 {
         self.block_group_node_count * self.node_size / self.block_size
+    }
+
+    /// how many usable blocks there are per group
+    pub fn usable_blocks_per_group (&self) -> u16 {
+        // total blocks per group - reserved for nodes - usage tables of nodes and usable blocks
+        (self.block_group_size - self.node_reserved_blocks_per_group() - 2) as u16
+    }
+
+    pub fn block_group_count (&self) -> u64 {
+        self.blocks / self.block_group_size
     }
 }
 

@@ -1,3 +1,4 @@
+#[derive(Copy, Clone)]
 #[repr(transparent)]
 pub struct Permission {
     perm: u16,
@@ -15,6 +16,14 @@ impl Permission {
             self.perm |= bit;
         } else {
             self.perm &= !bit;
+        }
+    }
+}
+
+impl Default for Permission {
+    fn default() -> Self {
+        Self {
+            perm: 0,
         }
     }
 }

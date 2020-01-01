@@ -51,16 +51,15 @@ impl FileSystem {
         Ok(file_system)
     }
 
+    /// number of blocks the block group descriptor table needs
+    fn bgdt_block_count(&self) -> u64 {
+        self.superblock.block_group_count() / BGD_PER_BLOCK as u64
+    }
+
     /// Initializes the block group descriptor table and all the block groups
     fn init_block_groups(&mut self) -> FsResult<()> {
-        // number of block groups
-        let block_group_count = self.superblock.blocks / self.superblock.block_group_size;
-
-        // number of blocks the block group descriptor table needs
-        let bgdt_block_count = block_group_count / BGD_PER_BLOCK as u64;
-
         // create the entries for
-        for i in 0..bgdt_block_count {
+        for i in 0..self.bgdt_block_count() {
             let mut bgdt = [BlockGroupDescriptor::default(); BGD_PER_BLOCK];
             for k in 0..BGD_PER_BLOCK {
                 let n = i * BGD_PER_BLOCK as u64 + k as u64;
@@ -83,19 +82,19 @@ impl FileSystem {
         let empty_block = vec![0u8; supr.block_size as usize].into_boxed_slice();
 
         let descriptor = BlockGroupDescriptor::new(
-            RawBlockAddr::new(group_offset),
-            (supr.block_group_size - supr.node_reserved_blocks_per_group() - 2) as u16,
+            RawAddr::new(group_offset),
+            supr.usable_blocks_per_group(),
             supr.block_group_node_count as u16,
             0,
-        );
+            );
 
         // override node usage table
         self.device.write_block(descriptor.node_usage_address().as_u64(), &empty_block)?;
 
         let mut reserved_block_bitmap = empty_block;
         for (i, _node) in descriptor.node_blocks_begin().until(descriptor.node_blocks_end(&supr)).enumerate() {
-             set_bit(&mut reserved_block_bitmap, 2 + i as usize, true);
-             // not needed to clear the node
+            set_bit(&mut reserved_block_bitmap, 2 + i as usize, true);
+            // not needed to clear the node
         }
 
         // overwrite block usage buffer to reserve blocks for the node table
@@ -104,11 +103,62 @@ impl FileSystem {
         Ok(descriptor)
     }
 
+    fn group_descriptor(&mut self, group: u64) -> FsResult<BlockGroupDescriptor> {
+        if group > self.superblock.block_group_count() {
+            Err(FsError::InvalidAddress)
+        } else {
+            // descriptor table starts at block 1 (superblock is block 0)
+            let descriptor_block = group / BGD_PER_BLOCK as u64 + 1;
+            let descriptor_index = group % BGD_PER_BLOCK as u64;
+
+            // read descriptor table
+            let mut desc_table = [BlockGroupDescriptor::default(); BGD_PER_BLOCK];
+            self.device.read_block(descriptor_block, desc_table.as_u8_slice_mut())?;
+            let descriptor = desc_table[descriptor_index as usize];
+            Ok(descriptor)
+        }
+    }
+
+    fn translate_block_addr(&mut self, addr: BlockAddr) -> FsResult<RawAddr> {
+        let addr = addr.inner_u64();
+        let bpg = self.superblock.usable_blocks_per_group() as u64;
+
+        let group = addr / bpg;
+        let index = addr % bpg;
+
+        let descriptor = self.group_descriptor(group)?;
+
+        // TODO check if block is used
+
+        // return block
+        Ok(descriptor.usable_blocks_begin(&self.superblock).offset(index as i64))
+    }
+
+    fn translate_node_addr(&mut self, addr: NodeAddr) -> FsResult<Node> {
+        let addr = addr.inner_u64();
+
+        let group = addr / NODES_PER_GROUP;
+        let index = addr % NODES_PER_GROUP;
+
+        let descriptor = self.group_descriptor(group)?;
+
+        // TODO check if node is used
+
+        let block = index / self.superblock.node_reserved_blocks_per_group(); // block of the groups node table
+        let index = index % self.superblock.node_reserved_blocks_per_group(); // index inside the block
+
+        // read the node table
+        let mut node_table = node_table();
+        self.device.read_block(descriptor.node_blocks_begin().offset(block as i64).as_u64(), &mut node_table.as_u8_slice_mut())?;
+
+        Ok(node_table[index as usize])
+    }
+
     fn allocate_block() -> BlockAddr {
         panic!("Unimplemented");
     }
 
-    fn dealloate_block(block: BlockAddr) {
+    fn deallocate_block(block: BlockAddr) {
         panic!("Unimplemented");
     }
 }
@@ -204,7 +254,7 @@ fn test_fffs_struct_sizes () {
     assert_eq!(size_of::<PointerData>(), 4096);
     assert_eq!(size_of::<NodeType>(), 1);
     assert_eq!(size_of::<BlockGroupDescriptor>(), 32);
-    assert_eq!(size_of::<RawBlockAddr>(), 8);
+    assert_eq!(size_of::<RawAddr>(), 8);
     assert_eq!(size_of::<BlockAddr>(), 8);
     assert_eq!(size_of::<Permission>(), 2);
     serial_println!("[ok]");

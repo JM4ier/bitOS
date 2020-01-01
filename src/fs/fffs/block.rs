@@ -6,7 +6,7 @@ use core::iter::Iterator;
 #[repr(C)]
 #[repr(align(32))]
 pub struct BlockGroupDescriptor {
-    pub group_begin: RawBlockAddr,
+    pub group_begin: RawAddr,
     pub unused_blocks: u16,
     pub unused_nodes: u16,
     pub dirs: u16,
@@ -15,7 +15,7 @@ pub struct BlockGroupDescriptor {
 impl Default for BlockGroupDescriptor {
     fn default () -> Self {
         Self {
-            group_begin: RawBlockAddr::null(),
+            group_begin: RawAddr::null(),
             unused_blocks: 0,
             unused_nodes: 0,
             dirs: 0,
@@ -25,7 +25,7 @@ impl Default for BlockGroupDescriptor {
 
 impl BlockGroupDescriptor {
 
-    pub fn new (group_begin: RawBlockAddr, unused_blocks: u16, unused_nodes: u16, dirs: u16) -> Self {
+    pub fn new (group_begin: RawAddr, unused_blocks: u16, unused_nodes: u16, dirs: u16) -> Self {
         Self {
             group_begin,
             unused_blocks,
@@ -34,20 +34,24 @@ impl BlockGroupDescriptor {
         }
     }
 
-    pub fn block_usage_address(&self) -> RawBlockAddr {
+    pub fn block_usage_address(&self) -> RawAddr {
         self.group_begin
     }
 
-    pub fn node_usage_address(&self) -> RawBlockAddr {
+    pub fn node_usage_address(&self) -> RawAddr {
         self.group_begin.offset(1)
     }
 
-    pub fn node_blocks_begin(&self) -> RawBlockAddr {
+    pub fn node_blocks_begin(&self) -> RawAddr {
         self.group_begin.offset(2)
     }
 
-    pub fn node_blocks_end(&self, supr: &SuperBlock) -> RawBlockAddr {
+    pub fn node_blocks_end(&self, supr: &SuperBlock) -> RawAddr {
         self.group_begin.offset(2 + supr.node_reserved_blocks_per_group() as i64)
+    }
+
+    pub fn usable_blocks_begin(&self, supr: &SuperBlock) -> RawAddr {
+        self.node_blocks_end(supr)
     }
 }
 
@@ -57,7 +61,7 @@ pub type Block = [u8; BLOCK_SIZE];
 
 #[repr(transparent)]
 #[derive(Copy, Clone)]
-pub struct RawBlockAddr {
+pub struct RawAddr {
     addr: u64,
 }
 
@@ -67,7 +71,13 @@ pub struct BlockAddr {
     addr: u64,
 }
 
-impl RawBlockAddr {
+#[repr(transparent)]
+#[derive(Copy, Clone)]
+pub struct NodeAddr {
+    addr: u64,
+}
+
+impl RawAddr {
 
     /// returns a 'null' address, which is `u64::max_value()`
     pub fn null() -> Self {
@@ -84,7 +94,7 @@ impl RawBlockAddr {
 
     /// checks if the address is 'null'
     pub fn is_null(self) -> bool {
-        self.addr == RawBlockAddr::null().addr
+        self.addr == Self::null().addr
     }
 
     /// increases the raw address by `offset`, panics if the address is 'null'
@@ -102,8 +112,8 @@ impl RawBlockAddr {
         self.addr
     }
 
-    pub fn until (self, end: RawBlockAddr) -> RawBlockAddrIter {
-        RawBlockAddrIter {
+    pub fn until (self, end: RawAddr) -> RawAddrIter {
+        RawAddrIter {
             start: self,
             end,
         }
@@ -117,23 +127,40 @@ impl BlockAddr {
         }
     }
     pub fn is_null(&self) -> bool {
-        self.addr == u64::max_value()
+        self.addr == Self::null().addr
+    }
+    pub fn inner_u64(&self) -> u64 {
+        self.addr
     }
 }
 
-pub fn superblock_addr() -> RawBlockAddr {
-    RawBlockAddr {
+impl NodeAddr {
+    pub fn null() -> Self {
+        Self {
+            addr: u64::max_value(),
+        }
+    }
+    pub fn is_null(&self) -> bool {
+        self.addr == Self::null().addr
+    }
+    pub fn inner_u64(&self) -> u64 {
+        self.addr
+    }
+}
+
+pub fn superblock_addr() -> RawAddr {
+    RawAddr {
         addr: 1,
     }
 }
 
-pub struct RawBlockAddrIter {
-    start: RawBlockAddr,
-    end: RawBlockAddr,
+pub struct RawAddrIter {
+    start: RawAddr,
+    end: RawAddr,
 }
 
-impl Iterator for RawBlockAddrIter {
-    type Item = RawBlockAddr;
+impl Iterator for RawAddrIter {
+    type Item = RawAddr;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.start.as_u64() == self.end.as_u64() {
