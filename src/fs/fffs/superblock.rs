@@ -1,14 +1,16 @@
 use super::*;
 use core::mem;
 
-/// randomly generated number
+/// randomly generated number to identify the superblock
 pub const MAGIC: u64 = 5172077894053490781;
 
 /// max length of volume name
 pub const VOLUME_NAME_LEN: usize = 32;
 
-#[repr(C)]
-#[repr(align(4096))]
+/// Superblock of file system.
+/// It stores general informations about the file system
+/// such as block size, size of the volume, etc
+#[repr(C, align(4096))]
 pub struct SuperBlock {
     /// signature to identify superblock
     pub magic: u64,
@@ -117,6 +119,7 @@ impl SuperBlock {
         (self.block_group_size - self.node_reserved_blocks_per_group() - 2) as u16
     }
 
+    /// returns the number of block groups on the volume
     pub fn block_group_count (&self) -> u64 {
         self.blocks / self.block_group_size
     }

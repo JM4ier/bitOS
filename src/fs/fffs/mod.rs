@@ -5,27 +5,44 @@ use crate::fs::{self, Path, AsU8Slice, FsResult, FsError, BlockDevice, SerdeBloc
 use alloc::{vec, vec::Vec, boxed::Box};
 
 
+// modules
 pub mod perm;
-use self::perm::*;
+use perm::*;
 
 pub mod superblock;
-use self::superblock::*;
+use superblock::*;
 
 pub mod block;
-use self::block::*;
+use block::*;
 
 pub mod node;
-use self::node::*;
+use node::*;
 
 pub mod pointer;
-use self::pointer::*;
+use pointer::*;
 
+pub mod bits;
+use bits::*;
+
+
+
+/// Block size of the file system. At the moment there is only one supported blocksize
 pub const BLOCK_SIZE: usize = 4096;
+
+/// Number of blocks belonging to a block group.
+/// This includes blocks used by the block group for
+/// management purposes, like a block usage table.
 pub const BLOCK_GROUP_SIZE: u64 = 8192;
+
+/// Number of nodes in a group.
 pub const NODES_PER_GROUP: u64 = 1536;
 
+/// Using a 64-bit integer to store time, to evade the year 38 problem.
+/// (Although it probably isn't relevant as there is a close to zero chance
+/// that this kernel is ever gonna be used)
 pub type Time = i64;
 
+/// The file system struct that acts as an interface to the rest of the kernel
 pub struct FileSystem {
     device: Box<dyn BlockDevice>,
     superblock: SuperBlock,
@@ -65,7 +82,8 @@ impl FileSystem {
                 let n = i * BGD_PER_BLOCK as u64 + k as u64;
                 bgdt[k] = self.create_bg_desc(n)?;
             }
-            self.device.write_block(i + 1, bgdt.as_u8_slice())?;
+            let addr = gdt_addr().offset(i as _);
+            self.device.write_block(addr.as_u64(), bgdt.as_u8_slice())?;
         }
         Ok(())
     }
@@ -103,13 +121,16 @@ impl FileSystem {
         Ok(descriptor)
     }
 
+    /// returns the group descriptor to the group passed as argument
     fn group_descriptor(&mut self, group: u64) -> FsResult<BlockGroupDescriptor> {
         if group > self.superblock.block_group_count() {
             Err(FsError::InvalidAddress)
         } else {
-            // descriptor table starts at block 1 (superblock is block 0)
-            let descriptor_block = group / BGD_PER_BLOCK as u64 + 1;
+            let descriptor_block = group / BGD_PER_BLOCK as u64;
             let descriptor_index = group % BGD_PER_BLOCK as u64;
+
+            // offset the descriptor block with the begin of the group descriptor table
+            let descriptor_block = gdt_addr().offset(descriptor_block as _).as_u64();
 
             // read descriptor table
             let mut desc_table = [BlockGroupDescriptor::default(); BGD_PER_BLOCK];
@@ -119,6 +140,7 @@ impl FileSystem {
         }
     }
 
+    /// translates a block address to a raw address using the group descriptor table
     fn translate_block_addr(&mut self, addr: BlockAddr) -> FsResult<RawAddr> {
         let addr = addr.inner_u64();
         let bpg = self.superblock.usable_blocks_per_group() as u64;
@@ -134,6 +156,7 @@ impl FileSystem {
         Ok(descriptor.usable_blocks_begin(&self.superblock).offset(index as i64))
     }
 
+    /// translates a node address to a raw address using the group descriptor table
     fn translate_node_addr(&mut self, addr: NodeAddr) -> FsResult<Node> {
         let addr = addr.inner_u64();
 
@@ -154,6 +177,9 @@ impl FileSystem {
         Ok(node_table[index as usize])
     }
 
+    /// reads the contents of a node and returns it as a `Vec` of `Block`s.
+    /// In the case of a file, this returns the file split into `BLOCK_SIZE`
+    /// big `u8` arrays.
     fn read_node_content(&mut self, node: Node) -> FsResult<Vec<Block>> {
         let mut blocks = Vec::new();
 
@@ -269,40 +295,31 @@ impl fs::FileSystem for FileSystem {
     }
 }
 
-fn set_bit(bitmap: &mut [u8], index: usize, value: bool) {
-    let byte = index / 8;
-    let bit = index % 8;
-    let bitmask = 1 << bit;
-    if value {
-        bitmap[byte] |= bitmask;
-    } else {
-        bitmap[byte] &= !bitmask;
-    }
-}
-
-fn get_bit(bitmap: &mut [u8], index: usize) -> bool {
-    let byte = index / 8;
-    let bit = index % 8;
-    let bitmask = 1 << bit;
-    bitmap[byte] & bitmask > 0
-}
 
 #[test_case]
 fn test_fffs_struct_sizes () {
     use core::mem::size_of;
     use crate::{serial_print, serial_println};
     serial_print!("test_fffs_struct_sizes... ");
-    assert_eq!(size_of::<SuperBlock>(), 4096);
-    assert_eq!(size_of::<BlockGroupDescriptorBlock>(), 4096);
-    assert_eq!(size_of::<PointerData>(), 4096);
-    assert_eq!(size_of::<Block>(), 4096);
+
+    // all block structs should have size `BLOCK_SIZE`
+    assert_eq!(size_of::<SuperBlock>(), BLOCK_SIZE);
+    assert_eq!(size_of::<BlockGroupDescriptorBlock>(), BLOCK_SIZE);
+    assert_eq!(size_of::<PointerData>(), BLOCK_SIZE);
+    assert_eq!(size_of::<Block>(), BLOCK_SIZE);
+    assert_eq!(size_of::<PointerData>(), BLOCK_SIZE);
+
     assert_eq!(size_of::<Node>(), 128);
-    assert_eq!(size_of::<PointerData>(), 4096);
     assert_eq!(size_of::<NodeType>(), 1);
+
     assert_eq!(size_of::<BlockGroupDescriptor>(), 32);
+
     assert_eq!(size_of::<RawAddr>(), 8);
     assert_eq!(size_of::<BlockAddr>(), 8);
+    assert_eq!(size_of::<NodeAddr>(), 8);
+
     assert_eq!(size_of::<Permission>(), 2);
+
     serial_println!("[ok]");
 }
 

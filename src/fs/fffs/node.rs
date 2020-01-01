@@ -13,10 +13,12 @@ pub enum NodeType {
     SymLink,
 }
 
+/// Node representing an entry in the file system.
+/// This entry can be a file, a directory or a symbolic link.
 #[derive(Copy, Clone)]
 #[repr(C, align(128))]
 pub struct Node {
-    /// the type of the node
+    /// the type of the node: file/directory/symbolic link
     pub node_type: NodeType,
 
     /// posix-like permissions (rwxrwxrwx)
@@ -52,6 +54,10 @@ pub struct Node {
 }
 
 impl Node {
+    /// creates new node with nonsensical values
+    /// this is needed to have an initialized `Node`
+    /// so that it can be passed to a `BlockDevice`
+    /// where values are read to the `Node`'s bytes.
     fn null() -> Self {
         Self {
             node_type: NodeType::File,
@@ -69,25 +75,35 @@ impl Node {
     }
 }
 
+/// returns a new node table with null nodes
 pub fn node_table () -> [Node; BLOCK_SIZE / 128] {
     [Node::null(); BLOCK_SIZE / 128]
 }
 
+/// Data that is associated with the node. Depending on the
+/// type of a node this data may be different.
 pub trait NodeData {
     fn to_blocks(&self) -> Vec<Block>;
     fn from_blocks(node: &Node, blocks: &Vec<Block>) -> Self;
 }
 
+/// Data that is associated with a `Directory` node.
+/// It stores all the entries of that directory.
 pub struct DirectoryData {
     pub entries: Vec<DirectoryEntry>,
 }
 
+/// One single directory entry
 pub struct DirectoryEntry {
+    /// name of the file/folder/link
     pub name: Vec<u8>,
+
+    /// address where the node of that file/folder/link is stored
     pub addr: NodeAddr,
 }
 
 impl DirectoryEntry {
+    /// returns the size in bytes that the entry will use once it is serialized
     fn size(&self) -> usize {
         // name length, address, name
         1 + 8 + self.name.len()
@@ -185,6 +201,8 @@ impl NodeData for DirectoryData {
     }
 }
 
+/// Data that is associated with a `File` node.
+/// It stores the file's contents in a byte array.
 pub struct FileData {
     pub data: Vec<u8>,
 }

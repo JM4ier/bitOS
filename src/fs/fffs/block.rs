@@ -3,12 +3,18 @@ use core::default::Default;
 use core::iter::Iterator;
 
 #[derive(Copy, Clone)]
-#[repr(C)]
-#[repr(align(32))]
+#[repr(C, align(32))]
 pub struct BlockGroupDescriptor {
+    /// first block that belongs to the group
     pub group_begin: RawAddr,
+
+    /// number of unused blocks in the group
     pub unused_blocks: u16,
+
+    /// number of unused nodes in the group
     pub unused_nodes: u16,
+
+    /// number of directories in the group
     pub dirs: u16,
 }
 
@@ -25,6 +31,7 @@ impl Default for BlockGroupDescriptor {
 
 impl BlockGroupDescriptor {
 
+    /// returns a new `BlockGroupDescriptor` with the given arguments
     pub fn new (group_begin: RawAddr, unused_blocks: u16, unused_nodes: u16, dirs: u16) -> Self {
         Self {
             group_begin,
@@ -34,43 +41,60 @@ impl BlockGroupDescriptor {
         }
     }
 
+    /// block address of the block usage table
     pub fn block_usage_address(&self) -> RawAddr {
         self.group_begin
     }
 
+    /// block address of the node usage table
     pub fn node_usage_address(&self) -> RawAddr {
         self.group_begin.offset(1)
     }
 
+    /// address of the first block containing node table data
     pub fn node_blocks_begin(&self) -> RawAddr {
         self.group_begin.offset(2)
     }
 
+    /// address of the first block after the node table
     pub fn node_blocks_end(&self, supr: &SuperBlock) -> RawAddr {
         self.group_begin.offset(2 + supr.node_reserved_blocks_per_group() as i64)
     }
 
+    /// address of the first block in the group that can store files/directories etc
     pub fn usable_blocks_begin(&self, supr: &SuperBlock) -> RawAddr {
         self.node_blocks_end(supr)
     }
 }
 
-pub const BGD_PER_BLOCK: usize = BLOCK_SIZE / 32;
+/// block group descriptor struct memory size
+pub const BGD_SIZE: usize = 32;
+
+/// block group descriptors per block
+pub const BGD_PER_BLOCK: usize = BLOCK_SIZE / BGD_SIZE;
+
 pub type BlockGroupDescriptorBlock = [BlockGroupDescriptor; BGD_PER_BLOCK];
 pub type Block = [u8; BLOCK_SIZE];
 
+/// raw address that describes the location of a block
 #[repr(transparent)]
 #[derive(Copy, Clone)]
 pub struct RawAddr {
     addr: u64,
 }
 
+/// Address of a block in the file system.
+/// It combines the number of the block group
+/// and the location of the block inside the group.
 #[repr(transparent)]
 #[derive(Copy, Clone)]
 pub struct BlockAddr {
     addr: u64,
 }
 
+/// Address of a node in the file system.
+/// It combines the number of the block group that contains the node
+/// with the location of the node inside the block group.
 #[repr(transparent)]
 #[derive(Copy, Clone)]
 pub struct NodeAddr {
@@ -86,6 +110,7 @@ impl RawAddr {
         }
     }
 
+    /// returns a new address with the given location
     pub fn new(addr: u64) -> Self {
         Self {
             addr,
@@ -112,6 +137,7 @@ impl RawAddr {
         self.addr
     }
 
+    /// returns an `RawAddrIter` that iterates over every `RawAddr` between `self` and `end`.
     pub fn until (self, end: RawAddr) -> RawAddrIter {
         RawAddrIter {
             start: self,
@@ -121,39 +147,58 @@ impl RawAddr {
 }
 
 impl BlockAddr {
+    /// returns a 'null' value address
     pub fn null() -> Self {
         Self {
             addr: u64::max_value(),
         }
     }
+
+    /// returns true if the address is 'null'
     pub fn is_null(&self) -> bool {
         self.addr == Self::null().addr
     }
+
+    /// Returns the inner, stored address. Don't use this to index a block device,
+    /// the address needs to be translated first using a block group descriptor table.
     pub fn inner_u64(&self) -> u64 {
         self.addr
     }
 }
 
 impl NodeAddr {
+    /// returns a 'null' value address
     pub fn null() -> Self {
         Self {
             addr: u64::max_value(),
         }
     }
+
+    /// returns true if the address is 'null'
     pub fn is_null(&self) -> bool {
         self.addr == Self::null().addr
     }
+
+    /// Returns the inner, stored address. Don't use this to index a block device,
+    /// the address needs to be translated first using a block group descriptor table.
     pub fn inner_u64(&self) -> u64 {
         self.addr
     }
 }
 
+/// returns the location of the file systems superblock
 pub fn superblock_addr() -> RawAddr {
     RawAddr {
         addr: 1,
     }
 }
 
+/// returns the first block that contains the file systems group descriptor table
+pub fn gdt_addr() -> RawAddr {
+    superblock_addr().offset(1)
+}
+
+/// `Iterator` for `RawAddr`
 pub struct RawAddrIter {
     start: RawAddr,
     end: RawAddr,

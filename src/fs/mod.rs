@@ -25,6 +25,7 @@ pub enum FsError {
     /// SuperBlock invalid or not found
     InvalidSuperBlock,
 
+    /// Invalid internal address to a file, block, inode, etc
     InvalidAddress,
 }
 
@@ -140,6 +141,7 @@ impl BlockDevice for RamDisk {
     }
 }
 
+/// simple struct that stores a file path without the separators
 pub struct Path {
     path: Vec<Vec<u8>>,
 }

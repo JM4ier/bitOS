@@ -28,7 +28,6 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     println!("Boot complete\n");
 
     demonstrate_heap();
-    //cause_heap_overflow();
 
     #[cfg(test)]
     test_main();

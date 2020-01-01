@@ -1,6 +1,11 @@
+/// UNIX style permission:
+/// It stors the access rights of the user owning the file,
+/// the groups that the user belongs to as well as others
+/// in regard to reading, writing and executing the file.
 #[derive(Copy, Clone)]
 #[repr(transparent)]
 pub struct Permission {
+    /// bitmap of access rights
     perm: u16,
 }
 
