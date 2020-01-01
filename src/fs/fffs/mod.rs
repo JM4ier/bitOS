@@ -17,6 +17,9 @@ use self::block::*;
 pub mod node;
 use self::node::*;
 
+pub mod pointer;
+use self::pointer::*;
+
 pub const BLOCK_SIZE: usize = 4096;
 pub const BLOCK_GROUP_SIZE: u64 = 8192;
 pub const NODES_PER_GROUP: u64 = 1536;
@@ -100,7 +103,17 @@ impl FileSystem {
 
         Ok(descriptor)
     }
+
+    fn allocate_block() -> BlockAddr {
+        panic!("Unimplemented");
+    }
+
+    fn dealloate_block(block: BlockAddr) {
+        panic!("Unimplemented");
+    }
 }
+
+
 
 // TODO
 impl fs::FileSystem for FileSystem {
@@ -150,6 +163,14 @@ impl fs::FileSystem for FileSystem {
     fn create_directory(path: Path) -> FsResult<()> {
         panic!("Not implemented");
     }
+
+    fn exists_file(path: Path) -> FsResult<bool> {
+        panic!("Not implemented");
+    }
+
+    fn exists_directory(path: Path) -> FsResult<bool> {
+        panic!("Not implemented");
+    }
 }
 
 fn set_bit(bitmap: &mut [u8], index: usize, value: bool) {
@@ -170,7 +191,6 @@ fn get_bit(bitmap: &mut [u8], index: usize) -> bool {
     bitmap[byte] & bitmask > 0
 }
 
-
 #[test_case]
 fn test_fffs_struct_sizes () {
     use core::mem::size_of;
@@ -178,7 +198,10 @@ fn test_fffs_struct_sizes () {
     serial_print!("test_fffs_struct_sizes... ");
     assert_eq!(size_of::<SuperBlock>(), 4096);
     assert_eq!(size_of::<BlockGroupDescriptorBlock>(), 4096);
+    assert_eq!(size_of::<PointerData>(), 4096);
+    assert_eq!(size_of::<Block>(), 4096);
     assert_eq!(size_of::<Node>(), 128);
+    assert_eq!(size_of::<PointerData>(), 4096);
     assert_eq!(size_of::<NodeType>(), 1);
     assert_eq!(size_of::<BlockGroupDescriptor>(), 32);
     assert_eq!(size_of::<RawBlockAddr>(), 8);

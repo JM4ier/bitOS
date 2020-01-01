@@ -110,6 +110,17 @@ impl RawBlockAddr {
     }
 }
 
+impl BlockAddr {
+    pub fn null() -> Self {
+        Self {
+            addr: u64::max_value(),
+        }
+    }
+    pub fn is_null(&self) -> bool {
+        self.addr == u64::max_value()
+    }
+}
+
 pub fn superblock_addr() -> RawBlockAddr {
     RawBlockAddr {
         addr: 1,

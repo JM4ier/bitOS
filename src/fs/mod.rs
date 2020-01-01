@@ -1,6 +1,9 @@
 use core::ptr::Unique;
+use alloc::vec::Vec;
 
 pub mod fffs;
+mod copy;
+pub use copy::*;
 
 /// Error type for file system errors
 pub enum FsError {
@@ -109,11 +112,6 @@ impl RamDisk {
     }
 }
 
-fn copy<T: Copy>(input: &[T], output: &mut [T], size: usize) {
-    for i in 0..size{
-        output[i] = input[i];
-    }
-}
 
 impl BlockDevice for RamDisk {
 
@@ -140,7 +138,9 @@ impl BlockDevice for RamDisk {
     }
 }
 
-pub struct Path;
+pub struct Path {
+    path: Vec<Vec<u8>>,
+}
 
 pub trait FileSystem : Sized  {
     /// allowed characters in file names
@@ -166,17 +166,27 @@ pub trait FileSystem : Sized  {
 
     /// creates a new directory at the path
     fn create_directory(path: Path) -> FsResult<()>;
+
+    /// returns `true` when the directory exists, `false` if it doesn't
+    fn exists_directory(path: Path) -> FsResult<bool>;
+
+    /// returns `true` when the directory exists, `false` if it doesn't
+    fn exists_file(path: Path) -> FsResult<bool>;
 }
 
+/// Blanket trait that is implemented for every `Sized` type.
+/// It allows for an easy conversion from a fixed size type to a slice of `u8`.
 pub trait AsU8Slice: Sized {
-    fn as_u8_slice(&mut self) -> &[u8];
+    /// struct to immutable `u8` slice
+    fn as_u8_slice(&self) -> &[u8];
+    /// struct to mutable `u8` slice
     fn as_u8_slice_mut(&mut self) -> &mut [u8];
 }
 
 impl<T: Sized> AsU8Slice for T {
-    fn as_u8_slice(&mut self) -> &[u8] {
+    fn as_u8_slice(&self) -> &[u8] {
         unsafe {
-            &*core::ptr::slice_from_raw_parts_mut((self as *mut T) as *mut u8,
+            &*core::ptr::slice_from_raw_parts((self as *const T) as *const u8,
                 core::mem::size_of::<T>())
         }
     }
@@ -187,3 +197,4 @@ impl<T: Sized> AsU8Slice for T {
         }
     }
 }
+
