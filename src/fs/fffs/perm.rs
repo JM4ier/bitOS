@@ -27,9 +27,12 @@ impl Permission {
 
 impl Default for Permission {
     fn default() -> Self {
-        Self {
+        let mut perm = Self {
             perm: 0,
-        }
+        };
+        perm.set(Accessor::User, Access::Read, true);
+        perm.set(Accessor::User, Access::Write, true);
+        perm
     }
 }
 

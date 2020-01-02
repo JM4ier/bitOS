@@ -5,7 +5,9 @@ use crate::fs::*;
 use core::cmp::min;
 use alloc::boxed::Box;
 
-#[derive(Copy, Clone)]
+pub const POINTERS_PER_NODE: usize = 9;
+
+#[derive(Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum NodeType {
     Directory,
@@ -50,7 +52,7 @@ pub struct Node {
     pub indirection_level: u64,
 
     /// potentially indirect pointers to data
-    pub pointers: [BlockAddr; 9],
+    pub pointers: [BlockAddr; POINTERS_PER_NODE],
 }
 
 impl Node {
@@ -58,7 +60,7 @@ impl Node {
     /// this is needed to have an initialized `Node`
     /// so that it can be passed to a `BlockDevice`
     /// where values are read to the `Node`'s bytes.
-    fn null() -> Self {
+    pub fn null() -> Self {
         Self {
             node_type: NodeType::File,
             permission: Permission::default(),
@@ -75,8 +77,10 @@ impl Node {
     }
 }
 
+pub type NodeTable = [Node; BLOCK_SIZE / 128];
+
 /// returns a new node table with null nodes
-pub fn node_table () -> [Node; BLOCK_SIZE / 128] {
+pub fn node_table () -> NodeTable {
     [Node::null(); BLOCK_SIZE / 128]
 }
 
@@ -85,6 +89,7 @@ pub fn node_table () -> [Node; BLOCK_SIZE / 128] {
 pub trait NodeData {
     fn to_blocks(&self) -> Vec<Block>;
     fn from_blocks(node: &Node, blocks: &Vec<Block>) -> Self;
+    fn empty() -> Self;
 }
 
 /// Data that is associated with a `Directory` node.
@@ -191,7 +196,7 @@ impl NodeData for DirectoryData {
                         addr,
                         name,
                     }
-                );
+                    );
             }
         }
 
@@ -199,6 +204,13 @@ impl NodeData for DirectoryData {
             entries
         }
     }
+
+    fn empty() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
 }
 
 /// Data that is associated with a `File` node.
@@ -230,6 +242,12 @@ impl NodeData for FileData {
         }
         Self {
             data
+        }
+    }
+
+    fn empty() -> Self {
+        Self {
+            data: Vec::new(),
         }
     }
 }

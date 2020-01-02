@@ -146,6 +146,12 @@ impl RawAddr {
     }
 }
 
+impl Into<u64> for RawAddr {
+    fn into(self) -> u64 {
+        self.addr
+    }
+}
+
 impl BlockAddr {
     /// returns a 'null' value address
     pub fn null() -> Self {
@@ -163,6 +169,13 @@ impl BlockAddr {
     /// the address needs to be translated first using a block group descriptor table.
     pub fn inner_u64(&self) -> u64 {
         self.addr
+    }
+
+    /// creates `BlockAddr` with specified addr and returns it
+    pub fn new(addr: u64) -> Self {
+        Self {
+            addr,
+        }
     }
 }
 
@@ -183,6 +196,18 @@ impl NodeAddr {
     /// the address needs to be translated first using a block group descriptor table.
     pub fn inner_u64(&self) -> u64 {
         self.addr
+    }
+
+    pub fn root() -> Self {
+        Self {
+            addr: 0,
+        }
+    }
+
+    pub fn new(addr: u64) -> Self {
+        Self {
+            addr,
+        }
     }
 }
 

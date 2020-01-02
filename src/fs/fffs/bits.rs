@@ -9,7 +9,7 @@ pub fn set_bit(bitmap: &mut [u8], index: usize, value: bool) {
     }
 }
 
-pub fn get_bit(bitmap: &mut [u8], index: usize) -> bool {
+pub fn get_bit(bitmap: &[u8], index: usize) -> bool {
     let byte = index / 8;
     let bit = index % 8;
     let bitmask = 1 << bit;

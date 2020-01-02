@@ -1,5 +1,5 @@
 use core::ptr::Unique;
-use alloc::vec::Vec;
+use alloc::{vec::Vec, boxed::Box};
 
 pub mod fffs;
 mod copy;
@@ -27,6 +27,12 @@ pub enum FsError {
 
     /// Invalid internal address to a file, block, inode, etc
     InvalidAddress,
+
+    /// Indicates that there is not enough space on the block device
+    NotEnoughSpace,
+
+    /// Some kind of error that is caused by bad programming of the file system
+    InternalError,
 }
 
 /// Result type for file system operations
@@ -52,14 +58,14 @@ pub trait BlockDevice {
 /// This trait allows `Sized` types to be read and written to and from the block device.
 /// It uses unsafe memory access to read the bytes of an instance of `T` or write to the bytes of an instance of `T`.
 /// It is useful if the generic type `T` is `repr(C)` and `repr(align(BS)).
-pub trait SerdeBlockDevice<T> {
+pub trait SerdeBlockDevice<I, T> {
     /// Tries to read from `self` and write the raw bytes to `obj` and
     /// returns `Err(FsError::MalformedBuffer)` if the memory representation of `T` has not the exact size of `BLOCK_SIZE`
-    fn read(&mut self, index: u64, obj: &mut T) -> FsResult<()>;
+    fn read(&mut self, index: I, obj: &mut T) -> FsResult<()>;
 
     /// Tries to read from `obj` and write the raw bytes to `self` and
     /// returns `Err(FsError::MalformedBuffer)` if the memory representation of `T` has not the exact size of `BLOCK_SIZE`
-    fn write(&mut self, index: u64, obj: &mut T) -> FsResult<()>;
+    fn write(&mut self, index: I, obj: &T) -> FsResult<()>;
 }
 
 /// Simple trait that checks if the I/O operation is valid based on limited information about the block device
@@ -79,13 +85,23 @@ impl<D: BlockDevice> BlockDeviceArgumentChecks for D {
     }
 }
 
-impl<T: Sized, B: BlockDevice> SerdeBlockDevice<T> for B {
-    fn read(&mut self, index: u64, obj: &mut T) -> FsResult<()> {
-        self.read_block(index, obj.as_u8_slice_mut())
+impl<I: Into<u64> + Sized, T: Sized, B: BlockDevice> SerdeBlockDevice<I, T> for B {
+    fn read(&mut self, index: I, obj: &mut T) -> FsResult<()> {
+        self.read_block(index.into(), obj.as_u8_slice_mut())
     }
 
-    fn write(&mut self, index: u64, obj: &mut T) -> FsResult<()> {
-        self.write_block(index, obj.as_u8_slice())
+    fn write(&mut self, index: I, obj: &T) -> FsResult<()> {
+        self.write_block(index.into(), obj.as_u8_slice())
+    }
+}
+
+impl<I: Into<u64> + Sized, T: Sized> SerdeBlockDevice<I, T> for Box<dyn BlockDevice> {
+    fn read(&mut self, index: I, obj: &mut T) -> FsResult<()> {
+        self.read_block(index.into(), obj.as_u8_slice_mut())
+    }
+
+    fn write(&mut self, index: I, obj: &T) -> FsResult<()> {
+        self.write_block(index.into(), obj.as_u8_slice())
     }
 }
 
@@ -142,8 +158,26 @@ impl BlockDevice for RamDisk {
 }
 
 /// simple struct that stores a file path without the separators
+#[derive(Clone)]
 pub struct Path {
     path: Vec<Vec<u8>>,
+}
+
+impl Path {
+    pub fn parent_dir(&self) -> Option<Path> {
+        if self.path.len() == 0 {
+            None
+        } else {
+            Some(Self{ path: self.path[..self.path.len()-1].to_vec() })
+        }
+    }
+    pub fn name(&self) -> Option<Vec<u8>> {
+        if self.path.len() == 0 {
+            None
+        } else {
+            Some(self.path[self.path.len() - 1][..].to_vec())
+        }
+    }
 }
 
 pub trait FileSystem : Sized  {
@@ -157,25 +191,25 @@ pub trait FileSystem : Sized  {
     fn mount<D: BlockDevice + 'static>(block_device: D) -> Result<Self, FsError>;
 
     /// opens a file / directory and returns a file descriptor
-    fn open(path: Path) -> Result<i64, FsError>;
+    fn open(&mut self, path: Path) -> Result<i64, FsError>;
 
     /// deletes a file or directory
-    fn delete(path: Path) -> FsResult<()>;
+    fn delete(&mut self, path: Path) -> FsResult<()>;
 
     /// clears the file, but does not delete it
-    fn clear(path: Path) -> FsResult<()>;
+    fn clear(&mut self, path: Path) -> FsResult<()>;
 
     /// creates a new file at the path
-    fn create_file(path: Path) -> FsResult<()>;
+    fn create_file(&mut self, path: Path) -> FsResult<()>;
 
     /// creates a new directory at the path
-    fn create_directory(path: Path) -> FsResult<()>;
+    fn create_directory(&mut self, path: Path) -> FsResult<()>;
 
     /// returns `true` when the directory exists, `false` if it doesn't
-    fn exists_directory(path: Path) -> FsResult<bool>;
+    fn exists_directory(&mut self, path: Path) -> FsResult<bool>;
 
     /// returns `true` when the directory exists, `false` if it doesn't
-    fn exists_file(path: Path) -> FsResult<bool>;
+    fn exists_file(&mut self, path: Path) -> FsResult<bool>;
 }
 
 /// Blanket trait that is implemented for every `Sized` type.
