@@ -14,20 +14,18 @@ I will just link their websites, which will explain how to install them.
 * [QEMU](https://www.qemu.org/download/)
 
 ### Installation guide
-* Clone the repository and change directory
-  ```
-  git clone https://github.com/JM4ier/bitOS.git
-  cd bitOS
-  ```
-    
-* Run the build tool installation script
-  ```
-  chmod u+x ./setup-build
-  ./setup-build
-  ```
-  
-* Run the kernel
-  ```
-  cargo xrun
-  ```
-   
+To clone, build, and run the kernel, you need to run the following commands: 
+```bash
+# clone project
+git clone https://github.com/JM4ier/bitOS.git
+cd bitOS/
+
+# enable execution of the build setup script
+chmod u+x ./setup-build
+
+# run the build setup script
+./setup-build
+
+# build the kernel
+cargo xrun
+```
