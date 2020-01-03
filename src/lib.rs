@@ -8,6 +8,10 @@
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
+// linting
+#![forbid(unused_must_use)]
+#![allow(dead_code)]
+
 extern crate alloc;
 
 use core::panic::PanicInfo;
