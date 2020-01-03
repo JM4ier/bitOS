@@ -182,7 +182,7 @@ impl FileSystem {
         if get_bit(&usage_table, index as usize) {
             Ok(descriptor.usable_blocks_begin(&self.superblock).offset(index as i64))
         } else {
-            Err(FsError::InvalidIndex)
+            Err(FsError::InvalidAddress)
         }
     }
 
@@ -609,7 +609,7 @@ impl FileSystem {
             Ok(())
         } else {
             // block is already unused
-            Err(FsError::InvalidIndex)
+            Err(FsError::InvalidAddress)
         }
     }
 }

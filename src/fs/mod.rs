@@ -7,14 +7,8 @@ pub use copy::*;
 
 /// Error type for file system errors
 pub enum FsError {
-    /// invalid block index
-    InvalidIndex,
-
-    /// struct / buffer size does not correspond to block size
-    MalformedBuffer,
-
-    /// root block is corrupted
-    InvalidRootBlock,
+    /// Some kind of error with the block device
+    BlockDeviceError,
 
     /// file or directory does not exist
     FileNotFound,
@@ -22,7 +16,7 @@ pub enum FsError {
     /// no permission to access path
     AccessViolation,
 
-    /// SuperBlock invalid or not found
+    /// Superblock invalid or not found
     InvalidSuperBlock,
 
     /// Invalid internal address to a file, block, inode, etc
@@ -79,9 +73,9 @@ trait BlockDeviceArgumentChecks {
 impl<D: BlockDevice> BlockDeviceArgumentChecks for D {
     fn check_args(&self, index: u64, buffer: &[u8]) -> FsResult<()> {
         if buffer.len() as u64 != self.blocksize() {
-            Err(FsError::MalformedBuffer)
+            panic!("Invalid buffer size");
         } else if index >= self.blocks() {
-            Err(FsError::InvalidIndex)
+            panic!("Invalid block id");
         } else {
             Ok(())
         }
