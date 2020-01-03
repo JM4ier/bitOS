@@ -5,7 +5,7 @@
 #![reexport_test_harness_main = "test_main"]
 
 use core::panic::PanicInfo;
-use bit_os::{println, memory};
+use bit_os::{print, println, memory, vga_buffer};
 use bootloader::{BootInfo, entry_point};
 use x86_64::{VirtAddr};
 
@@ -14,25 +14,49 @@ use bit_os::allocator;
 
 entry_point!(kernel_main);
 pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
-    println!("Boot started");
-    bit_os::init();
-    println!("Boot stage 1 completed");
+    println!("started boot sequence\n");
+    println!("loading kernel features:");
 
-    // initializing kernel heap
-    let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
-    let mut mapper = unsafe { memory::init(phys_mem_offset) };
-    let mut frame_allocator = unsafe{ memory::BootInfoFrameAllocator::init(&boot_info.memory_map) };
-    allocator::init_heap(&mut mapper, &mut frame_allocator)
-        .expect("Heap initialization failed");
-    println!("Boot stage 2 completed");
-    println!("Boot complete\n");
+    load_feature(|| {bit_os::init();}, "interrupts");
+    load_feature(|| {
+        // initializing kernel heap
+        let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
+        let mut mapper = unsafe { memory::init(phys_mem_offset) };
+        let mut frame_allocator = unsafe{
+            memory::BootInfoFrameAllocator::init(&boot_info.memory_map)
+        };
+        allocator::init_heap(&mut mapper, &mut frame_allocator)
+            .expect("Heap initialization failed");
+    }, "heap");
 
-    demonstrate_heap();
+    println!();
+    println!("{}", kernel_start_message());
 
     #[cfg(test)]
     test_main();
 
     bit_os::hlt_loop()
+}
+
+fn kernel_start_message() -> &'static str {
+"
+/////////////////////////
+/                       /
+/   Welcome to bitOS!   /
+/                       /
+/////////////////////////
+"
+}
+
+fn load_feature(func: impl Fn(), text: &'static str) {
+    print!("  {}", text);
+    func();
+    let mut col_pos = vga_buffer::WRITER.lock().col_pos();
+    while col_pos < 16 {
+        print!(" ");
+        col_pos += 1;
+    }
+    println!(" [ok]");
 }
 
 use alloc::{boxed::Box, vec, vec::Vec, rc::Rc};

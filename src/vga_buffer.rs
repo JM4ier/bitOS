@@ -61,6 +61,10 @@ pub struct Writer {
 }
 
 impl Writer {
+    pub fn col_pos (&self) -> usize {
+        self.column_position
+    }
+
     pub fn write_byte(&mut self, byte: u8) {
         match byte {
             b'\n' => self.new_line(),
