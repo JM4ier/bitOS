@@ -1,7 +1,7 @@
 //! first fucking file system
 
 use core::default::Default;
-use crate::fs::{self, Path, AsU8Slice, FsResult, FsError, BlockDevice, SerdeBlockDevice};
+use crate::fs::{self, *, Path, AsU8Slice, FsResult, FsError, BlockDevice, SerdeBlockDevice};
 use alloc::{vec, vec::Vec, boxed::Box};
 
 
@@ -273,6 +273,8 @@ impl FileSystem {
 
     /// writes the nodes contents blocks to the device
     fn write_node_content(&mut self, addr: NodeAddr, node: Node, content: Vec<Block>) -> FsResult<()> {
+        let group = addr.inner_u64() / NODES_PER_GROUP;
+
         let mut node = node;
         let indirection_level = {
             let mut i = 0;
@@ -286,38 +288,96 @@ impl FileSystem {
             }
         };
 
+        // write content size and indirection level to node
+        node.size = (BLOCK_SIZE * content.len()) as _;
         node.indirection_level = indirection_level;
+
         let depth = indirection_level as usize;
         let mut stack = Vec::with_capacity(depth);
-        let mut pstack = Vec::with_capacity(depth);
 
-        stack.push(0);
-        pstack.push(node.pointers);
+        stack.push((0, node.pointers.to_vec()));
 
-        while !stack.is_empty() {
+        let mut content = content.iter();
 
-            // TODO write data
+        'outer: while !stack.is_empty() {
+            // create a new pointer table if `depth` is not reached, otherwise write a block of content
+            if stack.len() < depth {
+                // add pointer block
+                stack.push((0, PointerData::empty().pointers.to_vec()));
+            } else {
+                match content.next() {
+                    Some(block) => {
+                        // write block
+                        let block_addr = self.allocate_block(group)?;
+                        let raw_addr = self.translate_block_addr(block_addr)?;
+                        self.device.write(raw_addr, &block)?;
 
+                        // update pointer table
+                        let (index, mut table) = stack.pop().unwrap();
+                        table[index] = block_addr;
+                        stack.push((index, table));
 
-            // increase index
-            while !stack.is_empty() {
-                let index = stack.pop().unwrap() + 1;
-                if index >= pstack.last().unwrap().len() {
-                    // table full
-                    if pstack.len() == 1 {
-                        // node pointers
-                        // writing node at end anyways
-                        pstack.pop();
-                    } else {
-                        // block pointers
-                    }
-                }
+                        // increase the index
+                        while !stack.is_empty() {
+                            let (mut index, table) = stack.pop().unwrap();
+                            index += 1;
+                            if index >= table.len() {
+                                // pointer table is full, need to write to disk and update parent table
+
+                                if stack.len() == 0 {
+                                    // pointer list in node
+                                    if let Some(block) = content.next() {
+                                        // pointer table is full, but there is still content
+                                        return Err(FsError::InternalError);
+                                    } else {
+                                        // push table back to stack to write it to the node after the loop
+                                        stack.push((index, table));
+                                        break 'outer;
+                                    }
+                                } else {
+                                    // there definitely is a parent table
+
+                                    // write table to device
+                                    let block_addr = self.allocate_block(group)?;
+                                    let raw_addr = self.translate_block_addr(block_addr)?;
+                                    self.device.write(raw_addr, &table)?;
+
+                                    // update parent pointer table
+                                    let (parent_index, mut parent_table) = stack.pop().unwrap();
+                                    parent_table[parent_index] = block_addr;
+                                    stack.push((parent_index, parent_table));
+                                }
+                            } else {
+                                // don't write table to device, as there are still values to be written to the table
+                                stack.push((index, table));
+                            }
+                        }
+                    },
+                    None => {
+                        // write all tables except the table in the node
+                        while stack.len() > 1 {
+                            // write table
+                            let (_, table) = stack.pop().unwrap();
+                            let block_addr = self.allocate_block(group)?;
+                            let raw_addr = self.translate_block_addr(block_addr)?;
+                            self.device.write(raw_addr, &table)?;
+
+                            // update parent table
+                            let (index, mut parent_table) = stack.pop().unwrap();
+                            parent_table[index] = block_addr;
+                            stack.push((index, parent_table));
+                        }
+                        break;
+                    },
+                };
             }
         }
 
-        // TODO write data
-
-        panic!("Unimplemented");
+        // write node data
+        let (_, table) = stack.pop().unwrap();
+        copy(&table[..], &mut node.pointers, table.len());
+        self.write_node(addr, node)?;
+        Ok(())
     }
 
     /// returns the `NodeAddr` from the given path and returns errors if the node doesn't exist
