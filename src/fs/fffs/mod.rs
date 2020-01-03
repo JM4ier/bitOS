@@ -271,6 +271,56 @@ impl FileSystem {
         Ok(blocks)
     }
 
+    /// deallocates all blocks used by the node
+    fn clear_node_content(&mut self, node: &mut Node) -> FsResult<()> {
+        let depth = node.indirection_level as usize + 1;
+        let mut stack = Vec::with_capacity(depth);
+
+        stack.push((0, node.pointers.to_vec()));
+
+        while !stack.is_empty() {
+            let addr = stack.last().unwrap().1[stack.last().unwrap().0];
+            if !addr.is_null() {
+                if stack.len() < depth {
+                    // push pointer block
+                    let addr = self.translate_block_addr(addr)?;
+                    let mut pointer_data = PointerData::empty();
+                    self.device.read(addr, &mut pointer_data)?;
+                    stack.push((0, pointer_data.pointers.to_vec()));
+                    continue;
+                } else {
+                    // deallocate content block
+                    self.deallocate_block(addr)?;
+                }
+            }
+            // increase index after deleting a block or when a pointer is null
+            while !stack.is_empty() {
+                let (index, table) = stack.pop().unwrap();
+                let index = index + 1;
+                if index < table.len() {
+                    stack.push((index, table));
+                } else {
+                    match stack.pop() {
+                        Some((i, t)) => {
+                            // deallocate pointer block
+                            let addr = t[i];
+                            self.deallocate_block(addr)?;
+                            stack.push((i, t));
+                        },
+                        None => {}, // there is no parent, can't deallocate pointers in the node
+                    }
+                }
+            }
+        }
+
+        // clear all the pointers in the node
+        node.size = 0;
+        for addr in node.pointers.iter_mut() {
+            *addr = BlockAddr::null();
+        }
+        Ok(())
+    }
+
     /// writes the nodes contents blocks to the device
     fn write_node_content(&mut self, addr: NodeAddr, node: Node, content: Vec<Block>) -> FsResult<()> {
         let group = addr.inner_u64() / NODES_PER_GROUP;
@@ -287,6 +337,8 @@ impl FileSystem {
                 i += 1;
             }
         };
+
+        self.clear_node_content(&mut node)?;
 
         // write content size and indirection level to node
         node.size = (BLOCK_SIZE * content.len()) as _;
@@ -510,20 +562,29 @@ impl FileSystem {
                     return Ok(BlockAddr::new(group * bpg + i));
                 }
             }
+
+            // if there is no free block, but the group descriptor is marked to have free blocks, that's a bug
+            panic!("Block unused node count doesn't correspond to node usage table");
         }
         Err(FsError::InternalError)
     }
 
+    /// fills the block given by `addr` with zeroes
     fn clear_block(&mut self, addr: RawAddr) -> FsResult<()> {
         let empty = [0u8; BLOCK_SIZE];
         self.device.write(addr, &empty)?;
         Ok(())
     }
 
+    /// frees `block` from the file system
     fn deallocate_block(&mut self, block: BlockAddr) -> FsResult<()> {
+        // find out which group the block is in
         let (group, index) = self.block_addr_to_group_index(block);
         let index = index as usize;
-        let mut descriptor = self.group_descriptor(group)?;
+
+        // read descriptor table
+        let (mut desc_table, table_block, desc_index) = self.group_descriptor_table(group)?;
+        let mut descriptor = desc_table[desc_index];
 
         // clear the block
         let addr = descriptor.usable_blocks_begin(&self.superblock).offset(index as _);
@@ -535,12 +596,19 @@ impl FileSystem {
 
         if get_bit(&usage_table, index) {
             // mark block as unused and write usage table and group descriptor
+
+            // write usage table
             set_bit(&mut usage_table, index, false);
-            descriptor.unused_blocks += 1;
             self.device.write(descriptor.block_usage_address(), &usage_table)?;
-            // TODO write descriptor
+
+            // write descriptor
+            descriptor.unused_blocks += 1;
+            desc_table[desc_index] = descriptor;
+            self.device.write(table_block, &desc_table)?;
+
             Ok(())
         } else {
+            // block is already unused
             Err(FsError::InvalidIndex)
         }
     }
@@ -568,7 +636,6 @@ impl fs::FileSystem for FileSystem {
                 device: Box::new(device),
                 superblock,
             };
-            // TODO load bgdt and initialize stuff
             Ok(file_system)
         } else {
             Err(FsError::InvalidSuperBlock)
