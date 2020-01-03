@@ -5,15 +5,22 @@
 #![reexport_test_harness_main = "test_main"]
 
 use core::panic::PanicInfo;
-use bit_os::{print, println, memory, vga_buffer};
+use bit_os::{print, println, memory, vga_buffer, vga_buffer::*};
 use bootloader::{BootInfo, entry_point};
 use x86_64::{VirtAddr};
+use lazy_static::*;
 
 extern crate alloc;
 use bit_os::allocator;
 
+lazy_static! {
+    static ref vga_color: ColorCode = ColorCode::new(Color::White, Color::Black);
+}
+
 entry_point!(kernel_main);
 pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
+    set_color(*vga_color);
+    
     println!("started boot sequence\n");
     println!("loading kernel features:");
 
@@ -29,8 +36,7 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
             .expect("Heap initialization failed");
     }, "heap");
 
-    println!();
-    println!("{}", kernel_start_message());
+    kernel_start_message();
 
     #[cfg(test)]
     test_main();
@@ -38,14 +44,18 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     bit_os::hlt_loop()
 }
 
-fn kernel_start_message() -> &'static str {
+fn kernel_start_message() {
+    let msg = 
 "
 /////////////////////////
 /                       /
 /   Welcome to bitOS!   /
 /                       /
 /////////////////////////
-"
+";
+    set_color(ColorCode::new(Color::Cyan, Color::Black));
+    println!("\n{}", msg);
+    set_color(*vga_color);
 }
 
 fn load_feature(func: impl Fn(), text: &'static str) {
@@ -56,7 +66,9 @@ fn load_feature(func: impl Fn(), text: &'static str) {
         print!(" ");
         col_pos += 1;
     }
+    set_color(ColorCode::new(Color::Green, Color::Black));
     println!(" [ok]");
+    set_color(*vga_color);
 }
 
 use alloc::{boxed::Box, vec, vec::Vec, rc::Rc};
