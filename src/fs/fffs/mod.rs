@@ -378,7 +378,7 @@ impl FileSystem {
 
                                 if stack.len() == 0 {
                                     // pointer list in node
-                                    if let Some(block) = content.next() {
+                                    if let Some(_) = content.next() {
                                         // pointer table is full, but there is still content
                                         return Err(FsError::InternalError);
                                     } else {
@@ -435,7 +435,7 @@ impl FileSystem {
     /// returns the `NodeAddr` from the given path and returns errors if the node doesn't exist
     fn node_addr_from_path (&mut self, path: Path) -> FsResult<NodeAddr> {
         let mut addr = NodeAddr::root();
-        for (i, p) in path.path.iter().enumerate() {
+        for p in path.path.iter() {
             let node = self.read_node(addr)?;
             match node.node_type {
                 NodeType::File => {
@@ -612,6 +612,80 @@ impl FileSystem {
             Err(FsError::InvalidAddress)
         }
     }
+
+    fn delete_empty_node(&mut self, addr: NodeAddr) -> FsResult<()> {
+        let node = self.read_node(addr)?;
+        if node.size > 0 {
+            panic!("Node still has data");
+        } else {
+            let group = addr.inner_u64() / NODES_PER_GROUP;
+            let node_index = addr.inner_u64() % NODES_PER_GROUP;
+
+            // load descriptor table
+            let (mut desc_table, block_index, table_index) = self.group_descriptor_table(group)?;
+            let mut descriptor = desc_table[table_index];
+
+            // update usage table
+            let mut usage_table = [0u8; BLOCK_SIZE];
+            self.device.read(descriptor.node_usage_address(), &mut usage_table)?;
+            set_bit(&mut usage_table, node_index as usize, false);
+            self.device.write(descriptor.node_usage_address(), &usage_table)?;
+
+            // update unused nodes count
+            descriptor.unused_nodes += 1;
+            desc_table[table_index] = descriptor;
+            self.device.write(block_index, &desc_table)?;
+
+            Ok(())
+        }
+    }
+
+    fn delete_file(&mut self, file: NodeAddr) -> FsResult<()> {
+        self.clear_file(file)?;
+        self.delete_empty_node(file)?;
+        Ok(())
+    }
+
+    fn delete_directory(&mut self, dir: NodeAddr) -> FsResult<()> {
+        self.clear_directory(dir)?;
+        self.delete_empty_node(dir)?;
+        Ok(())
+    }
+
+    fn clear_file(&mut self, file: NodeAddr) -> FsResult<()> {
+        let mut node = self.read_node(file)?;
+        if node.node_type != NodeType::File {
+            panic!("Node is not a file");
+        }
+        self.clear_node_content(&mut node)?;
+        self.write_node(file, node)?;
+        Ok(())
+    }
+
+    fn clear_directory(&mut self, dir: NodeAddr) -> FsResult<()> {
+        let mut node = self.read_node(dir)?;
+        if node.node_type != NodeType::Directory {
+            panic!("Node is not a directory");
+        }
+        let content = self.read_node_content(node)?;
+        let content = DirectoryData::from_blocks(&node, &content);
+
+        // delete all directory entries
+        for entry in content.entries.iter() {
+            let node = self.read_node(entry.addr)?;
+            match node.node_type {
+                NodeType::File => self.delete_file(entry.addr)?,
+                NodeType::Directory => self.delete_directory(entry.addr)?,
+                _ => panic!("Not supported"),
+            };
+        }
+
+        // clear node content
+        self.clear_node_content(&mut node)?;
+        self.write_node(dir, node)?;
+
+        Ok(())
+    }
 }
 
 // TODO
@@ -647,11 +721,20 @@ impl fs::FileSystem for FileSystem {
     }
 
     fn delete(&mut self, path: Path) -> FsResult<()> {
-        panic!("Not implemented");
+        self.clear(path.clone())?;
+        let addr = self.node_addr_from_path(path)?;
+        self.delete_empty_node(addr)?;
+        Ok(())
     }
 
     fn clear(&mut self, path: Path) -> FsResult<()> {
-        panic!("Not implemented");
+        let addr = self.node_addr_from_path(path)?;
+        let node = self.read_node(addr)?;
+        match node.node_type {
+            NodeType::File => self.clear_file(addr),
+            NodeType::Directory => self.clear_directory(addr),
+            _ => panic!("Not implemented")
+        }
     }
 
     fn create_file(&mut self, path: Path) -> FsResult<()> {
@@ -672,7 +755,7 @@ impl fs::FileSystem for FileSystem {
 
                         // create file node
                         let addr = self.create_node(parent_node_addr)?;
-                        let mut file_node = Node::null();
+                        let file_node = Node::null();
                         let empty_file_data = FileData::empty();
                         self.write_node_content(addr, file_node, empty_file_data.to_blocks())?;
 
