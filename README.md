@@ -4,7 +4,7 @@ This is my (currently) non-functioning operating system kernel based on
 
 ## Building and running the kernel
 
-### Preriquisites
+### Prerequisites
 These programs and tools should be installed before trying to build the kernel.
 Because the installation of these tools and programs is platform-dependent, 
 I will just link their websites, which will explain how to install them.
