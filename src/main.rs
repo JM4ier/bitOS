@@ -1,21 +1,21 @@
 #![no_std]
 #![no_main]
 #![feature(custom_test_frameworks)]
-#![test_runner(rust_os::test_runner)]
+#![test_runner(bit_os::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
 use core::panic::PanicInfo;
-use rust_os::{println, memory};
+use bit_os::{println, memory};
 use bootloader::{BootInfo, entry_point};
 use x86_64::{VirtAddr};
 
 extern crate alloc;
-use rust_os::allocator;
+use bit_os::allocator;
 
 entry_point!(kernel_main);
 pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     println!("Boot started");
-    rust_os::init();
+    bit_os::init();
     println!("Boot stage 1 completed");
 
     // initializing kernel heap
@@ -32,7 +32,7 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     #[cfg(test)]
     test_main();
 
-    rust_os::hlt_loop()
+    bit_os::hlt_loop()
 }
 
 use alloc::{boxed::Box, vec, vec::Vec, rc::Rc};
@@ -80,12 +80,12 @@ fn _cause_page_fault() {
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     println!("{}", info);
-    rust_os::hlt_loop()
+    bit_os::hlt_loop()
 }
 
 #[cfg(test)]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    rust_os::test_panic_handler(info)
+    bit_os::test_panic_handler(info)
 }
 

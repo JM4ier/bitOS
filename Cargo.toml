@@ -1,5 +1,5 @@
 [package]
-name = "rust_os"
+name = "bit_os"
 version = "0.1.0"
 authors = ["Jonas Maier <1.jmaier.3@gmail.com>"]
 edition = "2018"
