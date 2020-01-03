@@ -15,18 +15,19 @@ I will just link their websites, which will explain how to install them.
 
 ### Installation guide
 * Clone the repository and change directory
-
-  `git clone https://github.com/JM4ier/bitOS.git`
-  
-  `cd bitOS`
+  ```
+  git clone https://github.com/JM4ier/bitOS.git
+  cd bitOS
+  ```
     
 * Run the build tool installation script
-
-  `chmod u+x ./setup-build`
-  
-  `./setup-build`
+  ```
+  chmod u+x ./setup-build
+  ./setup-build
+  ```
   
 * Run the kernel
-
-  `cargo xrun`
+  ```
+  cargo xrun
+  ```
    
