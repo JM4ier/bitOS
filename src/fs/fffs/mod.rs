@@ -655,7 +655,43 @@ impl fs::FileSystem for FileSystem {
     }
 
     fn create_file(&mut self, path: Path) -> FsResult<()> {
-        panic!("Not implemented");
+        if !self.exists_file(path.clone())? && !self.exists_directory(path.clone())? {
+            match path.parent_dir() {
+                None => Err(FsError::IllegalOperation), // root node is reserved for root directory
+                Some(p) => {
+                    self.create_directory(p.clone())?;
+
+                    // read parent node
+                    let parent_node_addr = self.node_addr_from_path(p)?;
+                    let parent_node = self.read_node(parent_node_addr)?;
+
+                    if parent_node.node_type == NodeType::Directory {
+                        // read parent directory content
+                        let data = self.read_node_content(parent_node)?;
+                        let mut data = DirectoryData::from_blocks(&parent_node, &data);
+
+                        // create file node
+                        let addr = self.create_node(parent_node_addr)?;
+                        let mut file_node = Node::null();
+                        let empty_file_data = FileData::empty();
+                        self.write_node_content(addr, file_node, empty_file_data.to_blocks())?;
+
+                        // write file entry to parent dir
+                        data.entries.push(DirectoryEntry {
+                            name: path.name().unwrap(),
+                            addr,
+                        });
+                        self.write_node_content(parent_node_addr, parent_node, data.to_blocks())?;
+
+                        Ok(())
+                    } else {
+                        Err(FsError::IllegalOperation) // parent node is not a directory
+                    }
+                }
+            }
+        } else {
+            Err(FsError::IllegalOperation) // cant create a file when a file or directory with that name already exists
+        }
     }
 
     fn create_directory(&mut self, path: Path) -> FsResult<()> {

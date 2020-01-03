@@ -33,6 +33,9 @@ pub enum FsError {
 
     /// Some kind of error that is caused by bad programming of the file system
     InternalError,
+
+    /// Something that shouldn't be done
+    IllegalOperation,
 }
 
 /// Result type for file system operations
