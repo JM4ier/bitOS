@@ -1,11 +1,13 @@
 use core::ptr::Unique;
-use alloc::{vec::Vec, boxed::Box};
+use alloc::{vec, vec::Vec, boxed::Box};
+use lazy_static::lazy_static;
 
 pub mod fffs;
 mod copy;
 pub use copy::*;
 
 /// Error type for file system errors
+#[derive(Debug)]
 pub enum FsError {
     /// Some kind of error with the block device
     BlockDeviceError,
@@ -106,37 +108,31 @@ impl<I: Into<u64> + Sized, T: Sized> SerdeBlockDevice<I, T> for Box<dyn BlockDev
 const RAM_BS: usize = 4096;
 
 /// Simple disk that stores the data in memory
-pub struct RamDisk {
-    block_count: u64,
-    disk_begin: Unique<[u8; RAM_BS]>,
+pub struct RamDisk<'a> {
+    disk: &'a mut [[u8; RAM_BS]],
 }
 
-impl RamDisk {
-    pub unsafe fn new (addr: u64, blocks: u64) -> Self {
+impl<'a> RamDisk<'a> {
+    pub fn new (disk: &'a mut [[u8; RAM_BS]]) -> Self {
         Self {
-            block_count: blocks,
-            disk_begin: Unique::new_unchecked(addr as _),
+            disk,
         }
     }
 
     fn block_slice(&mut self, index: u64) -> &mut [u8] {
-        unsafe {
-            let block_ptr = self.disk_begin.as_ptr();
-            let offset = RAM_BS as isize + index as isize;
-            &mut *block_ptr.offset(offset)
-        }
+        &mut self.disk[index as usize]
     }
 }
 
 
-impl BlockDevice for RamDisk {
+impl<'a> BlockDevice for RamDisk<'a> {
 
     fn blocksize(&self) -> u64 {
         RAM_BS as u64
     }
 
     fn blocks(&self) -> u64 {
-        self.block_count
+        self.disk.len() as _
     }
 
     fn read_block(&mut self, index: u64, buffer: &mut [u8]) -> FsResult<()> {
@@ -177,7 +173,7 @@ impl Path {
     }
 }
 
-pub trait FileSystem : Sized  {
+pub trait FileSystem<B: BlockDevice> : Sized  {
     /// allowed characters in file names
     fn allowed_chars() -> &'static [u8];
 
@@ -185,7 +181,7 @@ pub trait FileSystem : Sized  {
     fn separator() -> u8;
 
     /// creates a new file system using the `block_device` or fails if the root block is not valid
-    fn mount<D: BlockDevice + 'static>(block_device: D) -> Result<Self, FsError>;
+    fn mount(block_device: B) -> Result<Self, FsError>;
 
     /// opens a file / directory and returns a file descriptor
     fn open(&mut self, path: Path) -> Result<i64, FsError>;
@@ -231,5 +227,16 @@ impl<T: Sized> AsU8Slice for T {
                 core::mem::size_of::<T>())
         }
     }
+}
+
+pub fn test_fs() {
+    use fffs;
+    use crate::{println, serial_print, serial_println};
+
+    let mut disk = vec![[0u8; RAM_BS]; 8192 + 64];
+    let device = RamDisk::new(&mut disk);
+    let fs = fffs::FileSystem::format(device, &[]).unwrap();
+
+    serial_println!("[ok]");
 }
 

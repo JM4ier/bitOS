@@ -3,6 +3,7 @@
 use core::default::Default;
 use crate::fs::{self, *, Path, AsU8Slice, FsResult, FsError, BlockDevice, SerdeBlockDevice};
 use alloc::{vec, vec::Vec, boxed::Box};
+use crate::{println};
 
 
 // modules
@@ -43,14 +44,15 @@ pub const NODES_PER_GROUP: u64 = 1536;
 pub type Time = i64;
 
 /// The file system struct that acts as an interface to the rest of the kernel
-pub struct FileSystem {
-    device: Box<dyn BlockDevice>,
+pub struct FileSystem<B: BlockDevice> {
+    device: B,
     superblock: SuperBlock,
 }
 
-impl FileSystem {
+impl<B: BlockDevice> FileSystem<B> {
     /// creates a new fs on the given `BlockDevice`.
-    pub fn format(mut device: impl BlockDevice + 'static, name: &[u8]) -> FsResult<FileSystem> {
+    pub fn format(mut device: B, name: &[u8]) -> FsResult<FileSystem<B>> {
+        println!("format");
         let mut part_name = [0; VOLUME_NAME_LEN];
         for (i, b) in name.iter().enumerate() {
             if i >= VOLUME_NAME_LEN {
@@ -61,7 +63,7 @@ impl FileSystem {
         let mut superblock = SuperBlock::new(device.blocks(), part_name);
         device.write(superblock_addr(), &mut superblock)?;
         let mut file_system = Self {
-            device: Box::new(device),
+            device,
             superblock,
         };
         file_system.init_block_groups()?;
@@ -689,7 +691,7 @@ impl FileSystem {
 }
 
 // TODO
-impl fs::FileSystem for FileSystem {
+impl<B: BlockDevice> fs::FileSystem<B> for FileSystem<B> {
     fn allowed_chars() -> &'static [u8] {
         b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-."
     }
@@ -699,7 +701,7 @@ impl fs::FileSystem for FileSystem {
     }
 
     /// takes the given blockdevice and tries to read it as this fs
-    fn mount<D: BlockDevice + 'static>(device: D) -> FsResult<FileSystem> {
+    fn mount(device: B) -> FsResult<FileSystem<B>> {
         let mut device = device;
         let mut superblock = SuperBlock::empty();
         device.read(superblock_addr().as_u64(), &mut superblock)?;
@@ -707,7 +709,7 @@ impl fs::FileSystem for FileSystem {
             superblock.mark_mounted();
             device.write(superblock_addr().as_u64(), &mut superblock)?;
             let file_system = Self {
-                device: Box::new(device),
+                device,
                 superblock,
             };
             Ok(file_system)

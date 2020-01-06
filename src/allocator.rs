@@ -5,8 +5,10 @@ use x86_64::{
     VirtAddr,
 };
 
+use crate::println;
+
 pub const HEAP_START: usize = 0x4444_4444_0000;
-pub const HEAP_SIZE: usize = 100 * 1024;
+pub const HEAP_SIZE: usize = 512 * 1024 * 1024; // 512M
 
 pub fn init_heap(
     mapper: &mut impl Mapper<Size4KiB>,
@@ -20,12 +22,15 @@ pub fn init_heap(
         Page::range_inclusive(heap_start_page, heap_end_page)
     };
 
-    for page in page_range {
-        let frame = frame_allocator.allocate_frame()
-            .ok_or(MapToError::FrameAllocationFailed)?;
-        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-        unsafe { mapper.map_to(page, frame, flags, frame_allocator)?.flush() };
+    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+    unsafe {
+        for page in page_range {
+            let frame = frame_allocator.allocate_frame()
+                .ok_or(MapToError::FrameAllocationFailed)?;
+            mapper.map_to(page, frame, flags, frame_allocator)?.flush();
+        }
     }
+
 
     unsafe {
         super::ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE);

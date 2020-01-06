@@ -5,7 +5,7 @@
 #![reexport_test_harness_main = "test_main"]
 
 use core::panic::PanicInfo;
-use bit_os::{print, println, memory, vga_buffer, vga_buffer::*};
+use bit_os::{print, println, memory, vga_buffer, vga_buffer::*, fs};
 use bootloader::{BootInfo, entry_point};
 use x86_64::{VirtAddr};
 use lazy_static::*;
@@ -20,7 +20,7 @@ lazy_static! {
 entry_point!(kernel_main);
 pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     set_color(*vga_color);
-    
+
     println!("started boot sequence\n");
     println!("loading kernel features:");
 
@@ -35,6 +35,7 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
         allocator::init_heap(&mut mapper, &mut frame_allocator)
             .expect("Heap initialization failed");
     }, "heap");
+    load_feature(|| {fs::test_fs();}, "file system");
 
     kernel_start_message();
 
@@ -45,7 +46,7 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
 }
 
 fn kernel_start_message() {
-    let msg = 
+    let msg =
 "
 /////////////////////////
 /                       /
@@ -59,15 +60,15 @@ fn kernel_start_message() {
 }
 
 fn load_feature(func: impl Fn(), text: &'static str) {
-    print!("  {}", text);
-    func();
+    print!("  {} ", text);
     let mut col_pos = vga_buffer::WRITER.lock().col_pos();
     while col_pos < 16 {
         print!(" ");
         col_pos += 1;
     }
+    func();
     set_color(ColorCode::new(Color::Green, Color::Black));
-    println!(" [ok]");
+    println!("[ok]");
     set_color(*vga_color);
 }
 
@@ -115,7 +116,9 @@ fn _cause_page_fault() {
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    println!("{}", info);
+    set_color(ColorCode::new(Color::Red, Color::Black));
+    println!("\n{}", info);
+    set_color(*vga_color);
     bit_os::hlt_loop()
 }
 

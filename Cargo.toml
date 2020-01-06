@@ -16,7 +16,7 @@ panic = "abort"
 test-timeout = 10
 test-args = [
 	"-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", "-serial", "stdio",
-	"-display", "none"
+	"-m", "1G", "-display", "none"
 ]
 test-success-exit-code = 33
 
