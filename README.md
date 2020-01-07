@@ -27,5 +27,8 @@ chmod u+x ./setup-build
 ./setup-build
 
 # build the kernel
-cargo xrun
+cargo xbuild
+
+# run the kernel
+bootimage run -- -m 1G
 ```
