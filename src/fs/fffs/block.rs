@@ -2,7 +2,7 @@ use super::*;
 use core::default::Default;
 use core::iter::Iterator;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C, align(32))]
 pub struct BlockGroupDescriptor {
     /// first block that belongs to the group
@@ -78,7 +78,7 @@ pub type Block = [u8; BLOCK_SIZE];
 
 /// raw address that describes the location of a block
 #[repr(transparent)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct RawAddr {
     addr: u64,
 }

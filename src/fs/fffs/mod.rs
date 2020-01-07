@@ -52,20 +52,25 @@ pub struct FileSystem<B: BlockDevice> {
 impl<B: BlockDevice> FileSystem<B> {
     /// creates a new fs on the given `BlockDevice`.
     pub fn format(mut device: B, name: &[u8]) -> FsResult<FileSystem<B>> {
-        println!("format");
-        let mut part_name = [0; VOLUME_NAME_LEN];
+        // copy partition name
+        let mut part_name = [0u8; VOLUME_NAME_LEN];
         for (i, b) in name.iter().enumerate() {
             if i >= VOLUME_NAME_LEN {
                 break;
             }
             part_name[i] = *b;
         }
-        let mut superblock = SuperBlock::new(device.blocks(), part_name);
-        device.write(superblock_addr(), &mut superblock)?;
+
+        // create superblock
+        let superblock = SuperBlock::new(device.blocks(), part_name);
+        device.write(superblock_addr(), &superblock)?;
+
         let mut file_system = Self {
             device,
             superblock,
         };
+
+        // initialize block groups with their respective descriptors
         file_system.init_block_groups()?;
 
         // create root directory
@@ -84,20 +89,24 @@ impl<B: BlockDevice> FileSystem<B> {
 
     /// number of blocks the block group descriptor table needs
     fn bgdt_block_count(&self) -> u64 {
-        self.superblock.block_group_count() / BGD_PER_BLOCK as u64
+        self.superblock.block_group_count() / BGD_PER_BLOCK as u64 + 1
     }
 
     /// Initializes the block group descriptor table and all the block groups
     fn init_block_groups(&mut self) -> FsResult<()> {
-        // create the entries for
+        // create the entries for all descriptors
+
         for i in 0..self.bgdt_block_count() {
             let mut bgdt = [BlockGroupDescriptor::default(); BGD_PER_BLOCK];
             for k in 0..BGD_PER_BLOCK {
                 let n = i * BGD_PER_BLOCK as u64 + k as u64;
+                if n >= self.superblock.block_group_count() {
+                    break;
+                }
                 bgdt[k] = self.create_bg_desc(n)?;
             }
             let addr = gdt_addr().offset(i as _);
-            self.device.write_block(addr.as_u64(), bgdt.as_u8_slice())?;
+            self.device.write(addr, &bgdt)?;
         }
         Ok(())
     }
@@ -111,7 +120,7 @@ impl<B: BlockDevice> FileSystem<B> {
         let group_offset = reserved_offset + index * group_size;
 
         // empty block used to overwrite blocks on the blockdevice
-        let empty_block = vec![0u8; supr.block_size as usize].into_boxed_slice();
+        let empty_block = [0u8; BLOCK_SIZE];
 
         let descriptor = BlockGroupDescriptor::new(
             RawAddr::new(group_offset),
@@ -121,7 +130,7 @@ impl<B: BlockDevice> FileSystem<B> {
             );
 
         // override node usage table
-        self.device.write_block(descriptor.node_usage_address().as_u64(), &empty_block)?;
+        self.device.write(descriptor.node_usage_address(), &empty_block)?;
 
         let mut reserved_block_bitmap = empty_block;
         for (i, _node) in descriptor.node_blocks_begin().until(descriptor.node_blocks_end(&supr)).enumerate() {
@@ -130,7 +139,7 @@ impl<B: BlockDevice> FileSystem<B> {
         }
 
         // overwrite block usage buffer to reserve blocks for the node table
-        self.device.write_block(descriptor.node_usage_address().as_u64(), &reserved_block_bitmap)?;
+        self.device.write(descriptor.node_usage_address(), &reserved_block_bitmap)?;
 
         Ok(descriptor)
     }
@@ -144,13 +153,13 @@ impl<B: BlockDevice> FileSystem<B> {
             let descriptor_index = group % BGD_PER_BLOCK as u64;
 
             // offset the descriptor block with the begin of the group descriptor table
-            let descriptor_block = gdt_addr().offset(descriptor_block as _).as_u64();
+            let descriptor_block = gdt_addr().offset(descriptor_block as _);
 
             // read descriptor table
             let mut desc_table = [BlockGroupDescriptor::default(); BGD_PER_BLOCK];
             self.device.read(descriptor_block, &mut desc_table)?;
 
-            Ok((desc_table, descriptor_block, descriptor_index as usize))
+            Ok((desc_table, descriptor_block.as_u64(), descriptor_index as usize))
         }
     }
 
@@ -202,13 +211,13 @@ impl<B: BlockDevice> FileSystem<B> {
         let block = index / self.superblock.node_reserved_blocks_per_group(); // block of the groups node table
         let index = index % self.superblock.node_reserved_blocks_per_group(); // index inside the block
 
-        let block_index = descriptor.node_blocks_begin().offset(block as i64).as_u64();
+        let block_index = descriptor.node_blocks_begin().offset(block as i64);
 
         // read the node table
         let mut node_table = node_table();
         self.device.read(block_index, &mut node_table)?;
 
-        Ok((node_table, block_index, index as usize))
+        Ok((node_table, block_index.as_u64(), index as usize))
     }
 
     /// translates a node address to a raw address using the group descriptor table
@@ -498,6 +507,7 @@ impl<B: BlockDevice> FileSystem<B> {
                 }
             }
         }
+        println!("{:#?}", descriptor);
         Err(FsError::InternalError)
     }
 
@@ -704,10 +714,10 @@ impl<B: BlockDevice> fs::FileSystem<B> for FileSystem<B> {
     fn mount(device: B) -> FsResult<FileSystem<B>> {
         let mut device = device;
         let mut superblock = SuperBlock::empty();
-        device.read(superblock_addr().as_u64(), &mut superblock)?;
+        device.read(superblock_addr(), &mut superblock)?;
         if superblock.is_valid() {
             superblock.mark_mounted();
-            device.write(superblock_addr().as_u64(), &mut superblock)?;
+            device.write(superblock_addr(), &mut superblock)?;
             let file_system = Self {
                 device,
                 superblock,

@@ -5,12 +5,13 @@ use core::mem;
 pub const MAGIC: u64 = 5172077894053490781;
 
 /// max length of volume name
-pub const VOLUME_NAME_LEN: usize = 32;
+pub const VOLUME_NAME_LEN: usize = 16;
 
 /// Superblock of file system.
 /// It stores general informations about the file system
 /// such as block size, size of the volume, etc
 #[repr(C, align(4096))]
+#[derive(PartialEq, Eq, Debug)]
 pub struct SuperBlock {
     /// signature to identify superblock
     pub magic: u64,
@@ -76,13 +77,12 @@ impl SuperBlock {
         let nodes = block_group_count * NODES_PER_GROUP;
         let reserved = 16 + bgdt_reserved;
         use crate::println;
-        println!("b: {}, r:{}", blocks, reserved);
         Self {
             magic: MAGIC,
             nodes,
             blocks,
             reserved,
-            free_nodes: 0,
+            free_nodes: nodes,
             free_blocks: blocks - reserved,
             super_block_index: superblock_addr(),
             block_size: BLOCK_SIZE as u64,

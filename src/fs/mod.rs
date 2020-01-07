@@ -240,3 +240,24 @@ pub fn test_fs() {
     serial_println!("[ok]");
 }
 
+#[test_case]
+fn test_ramdisk() {
+    use crate::{serial_print, serial_println};
+    serial_print!("ramdisk test...");
+    let mut disk = vec![[0u8; RAM_BS]; 1000];
+    let mut device = RamDisk::new(&mut disk);
+    let mut block = [1u8; RAM_BS];
+    block[89] = 99;
+    device.write_block(27, &block).unwrap();
+    block[20] = 121;
+    device.write_block(100, &block).unwrap();
+    block[89] = 2;
+    device.read_block(27, &mut block).unwrap();
+    assert_eq!(99, block[89]);
+    assert_eq!(1, block[3]);
+    block[20] = 0;
+    device.read_block(100, &mut block).unwrap();
+    assert_eq!(121, block[20]);
+    assert_eq!(1, block[2888]);
+    serial_println!("[ok]");
+}
