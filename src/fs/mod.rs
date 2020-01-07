@@ -1,6 +1,4 @@
-use core::ptr::Unique;
 use alloc::{vec, vec::Vec, boxed::Box};
-use lazy_static::lazy_static;
 
 pub mod fffs;
 mod copy;
@@ -171,6 +169,24 @@ impl Path {
             Some(self.path[self.path.len() - 1][..].to_vec())
         }
     }
+    pub fn from_str<B: BlockDevice, T: FileSystem<B>>(string: &str) -> Option<Path> {
+        let string = string.as_bytes();
+        let mut path: Vec<Vec<u8>> = Vec::new();
+        let mut token = Vec::new();
+        for &ch in string {
+            if ch == T::separator() {
+                if !token.is_empty() {
+                    path.push(token);
+                    token = Vec::new();
+                }
+            } else if T::allowed_chars().contains(&ch) {
+                token.push(ch);
+            } else {
+                return None;
+            }
+        }
+        Some(Self{path})
+    }
 }
 
 pub trait FileSystem<B: BlockDevice> : Sized  {
@@ -230,12 +246,11 @@ impl<T: Sized> AsU8Slice for T {
 }
 
 pub fn test_fs() {
-    use fffs;
-    use crate::{println, serial_print, serial_println};
+    use crate::{serial_println};
 
     let mut disk = vec![[0u8; RAM_BS]; 8192 + 64];
     let device = RamDisk::new(&mut disk);
-    let fs = fffs::FileSystem::format(device, &[]).unwrap();
+    let _fs = fffs::FileSystem::format(device, &[]).unwrap();
 
     serial_println!("[ok]");
 }

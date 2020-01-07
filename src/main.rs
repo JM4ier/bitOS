@@ -14,12 +14,12 @@ extern crate alloc;
 use bit_os::allocator;
 
 lazy_static! {
-    static ref vga_color: ColorCode = ColorCode::new(Color::White, Color::Black);
+    static ref VGA_COLOR: ColorCode = ColorCode::new(Color::White, Color::Black);
 }
 
 entry_point!(kernel_main);
 pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
-    set_color(*vga_color);
+    set_color(*VGA_COLOR);
 
     println!("started boot sequence\n");
     println!("loading kernel features:");
@@ -32,9 +32,9 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
         let mut frame_allocator = unsafe{
             memory::BootInfoFrameAllocator::init(&boot_info.memory_map)
         };
-        allocator::init_heap(&mut mapper, &mut frame_allocator)
+        allocator::init_mem(&mut mapper, &mut frame_allocator)
             .expect("Heap initialization failed");
-    }, "heap");
+    }, "memory");
     load_feature(|| {fs::test_fs();}, "file system");
 
     kernel_start_message();
@@ -56,7 +56,7 @@ fn kernel_start_message() {
 ";
     set_color(ColorCode::new(Color::Cyan, Color::Black));
     println!("\n{}", msg);
-    set_color(*vga_color);
+    set_color(*VGA_COLOR);
 }
 
 fn load_feature(func: impl Fn(), text: &'static str) {
@@ -69,11 +69,11 @@ fn load_feature(func: impl Fn(), text: &'static str) {
     func();
     set_color(ColorCode::new(Color::Green, Color::Black));
     println!("[ok]");
-    set_color(*vga_color);
+    set_color(*VGA_COLOR);
 }
 
 use alloc::{boxed::Box, vec, vec::Vec, rc::Rc};
-fn demonstrate_heap() {
+fn _demonstrate_heap() {
     println!("Demonstrating heap");
     let heap_value = Box::new(42);
     println!("heap_value at {:p}", heap_value);
@@ -118,7 +118,7 @@ fn _cause_page_fault() {
 fn panic(info: &PanicInfo) -> ! {
     set_color(ColorCode::new(Color::Red, Color::Black));
     println!("\n{}", info);
-    set_color(*vga_color);
+    set_color(*VGA_COLOR);
     bit_os::hlt_loop()
 }
 

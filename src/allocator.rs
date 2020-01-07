@@ -5,12 +5,10 @@ use x86_64::{
     VirtAddr,
 };
 
-use crate::println;
-
 pub const HEAP_START: usize = 0x4444_4444_0000;
 pub const HEAP_SIZE: usize = 512 * 1024 * 1024; // 512M
 
-pub fn init_heap(
+pub fn init_mem(
     mapper: &mut impl Mapper<Size4KiB>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
     ) -> Result<(), MapToError> {

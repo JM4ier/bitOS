@@ -2,7 +2,7 @@
 
 use core::default::Default;
 use crate::fs::{self, *, Path, AsU8Slice, FsResult, FsError, BlockDevice, SerdeBlockDevice};
-use alloc::{vec, vec::Vec, boxed::Box};
+use alloc::{vec, vec::Vec};
 use crate::{println};
 
 
@@ -728,7 +728,7 @@ impl<B: BlockDevice> fs::FileSystem<B> for FileSystem<B> {
         }
     }
 
-    fn open(&mut self, path: Path) -> Result<i64, FsError> {
+    fn open(&mut self, _path: Path) -> Result<i64, FsError> {
         panic!("Not implemented");
     }
 
