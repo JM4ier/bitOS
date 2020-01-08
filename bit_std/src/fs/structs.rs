@@ -19,8 +19,12 @@ impl Access for Write {
 
 #[repr(C)]
 pub enum FsError {
+    /// file or directory not found
     NotFound,
+    /// no access rights
     AccessViolation,
+    /// an illegal operation, e.g. reading a file after closing it
+    IllegalOperation,
 }
 
 pub type FsResult<T> = Result<T, FsError>;

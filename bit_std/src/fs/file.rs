@@ -35,22 +35,33 @@ impl<T: Access> File<T> {
         fd_to_file::<T>(fd)
     }
 
-    /// Consumes and closes the file
-    pub fn close(self) {
+    /// closes the file
+    pub fn close(&mut self) {
         unsafe {
             syscall!(SYS_CLOSE, self.fd);
         }
     }
 }
 
+impl<T: Access> Drop for File<T> {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
 impl File<Read> {
     /// Reads file content into the provided buffer.
     /// Returns the number of bytes that were read.
-    pub fn read(&mut self, bytes: &mut [u8]) -> usize {
+    pub fn read(&mut self, bytes: &mut [u8]) -> FsResult<usize> {
         let bytes_read = unsafe {
             syscall!(SYS_READ, self.fd, bytes.as_ptr(), bytes.len())
         };
-        bytes_read as _
+        if bytes_read < 0 {
+            // read after close or similar stuff
+            Err(FsError::IllegalOperation)
+        } else {
+            Ok(bytes_read as _)
+        }
     }
 }
 
@@ -67,9 +78,15 @@ impl File<Write> {
     }
 
     /// Writes the buffer passed as argument to the end of the file
-    pub fn write(&mut self, bytes: &[u8]) {
-        unsafe {
-            syscall!(SYS_WRITE, self.fd, bytes.as_ptr(), bytes.len());
+    pub fn write(&mut self, bytes: &[u8]) -> FsResult<()> {
+        let status_code = unsafe {
+            syscall!(SYS_WRITE, self.fd, bytes.as_ptr(), bytes.len())
+        };
+        if status_code != 0 {
+            // write after close or similar stuff
+            Err(FsError::IllegalOperation)
+        } else {
+            Ok(())
         }
     }
 }
