@@ -1,31 +1,35 @@
 //! syscall module that allows for communication with the kernel
+#![macro_use]
 
 /// print to kernel console
-pub const PRINT: u64 = 0x10;
+pub const SYS_PRINT: u64 = 0x10;
 
 /// open file or directory
-pub const OPEN: u64 = 0x20;
+pub const SYS_OPEN: u64 = 0x20;
 
 /// create file
-pub const CREATE: u64 = 0x21;
+pub const SYS_CREATE: u64 = 0x21;
 
 /// read file
-pub const READ: u64 = 0x22;
+pub const SYS_READ: u64 = 0x22;
 
 /// write file
-pub const WRITE: u64 = 0x23;
+pub const SYS_WRITE: u64 = 0x23;
 
 /// remove file
-pub const REMOVE: u64 = 0x24;
+pub const SYS_REMOVE: u64 = 0x24;
 
 /// read directory content
-pub const READDIR: u64 = 0x25;
+pub const SYS_READDIR: u64 = 0x25;
 
 /// create directory
-pub const MKDIR: u64 = 0x25;
+pub const SYS_MKDIR: u64 = 0x25;
 
 /// remove directory
-pub const RMDIR: u64 = 0x26;
+pub const SYS_RMDIR: u64 = 0x26;
+
+/// close file
+pub const SYS_CLOSE: u64 = 0x27;
 
 
 
@@ -43,7 +47,7 @@ _syscall:
 
 
 extern "C" {
-    pub fn _syscall(_rdi: u64, _rsi: u64, _rdx: u64, _rcx: u64, _r8: u64, _r9: u64) -> u64;
+    pub fn _syscall(_rdi: u64, _rsi: u64, _rdx: u64, _rcx: u64, _r8: u64, _r9: u64) -> i64;
 }
 
 #[macro_export]
