@@ -35,7 +35,7 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
         allocator::init_mem(&mut mapper, &mut frame_allocator)
             .expect("Heap initialization failed");
     }, "memory");
-    load_feature(|| {fs::test_fs();}, "file system");
+    //load_feature(|| {fs::test_fs();}, "file system");
 
     kernel_start_message();
 

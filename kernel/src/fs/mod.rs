@@ -1,8 +1,13 @@
 use alloc::{vec, vec::Vec, boxed::Box};
 
-pub mod fffs;
+use core::ops::{Deref, DerefMut};
+
+pub mod ffat;
+
 mod copy;
 pub use copy::*;
+
+pub const SEPARATOR: u8 = b'/';
 
 /// Error type for file system errors
 #[derive(Debug)]
@@ -50,6 +55,9 @@ pub trait BlockDevice {
     /// Basic write operation:
     /// writes `buffer` to `self`
     fn write_block(&mut self, index: u64, buffer: &[u8]) -> FsResult<()>;
+
+    /// returns true when the device is read only
+    fn is_read_only(&self) -> bool;
 }
 
 /// This trait allows `Sized` types to be read and written to and from the block device.
@@ -102,6 +110,53 @@ impl<I: Into<u64> + Sized, T: Sized> SerdeBlockDevice<I, T> for Box<dyn BlockDev
     }
 }
 
+pub trait StructBlockDevice<B: BlockDevice> {
+    fn get<I: Into<u64> + Sized, T: Sized + Default>(&mut self, index: I) -> FsResult<T>;
+    fn get_mut<I: Into<u64> + Sized + Copy, T: Sized + Default>(&mut self, index: I) -> FsResult<EditableBlock<'_, T, B, I>>;
+}
+
+pub struct EditableBlock<'d, T: Sized, D: BlockDevice, I: Into<u64> + Sized> {
+    idx: I,
+    data: T,
+    device: &'d mut D,
+}
+
+impl<'d, T: Sized, D: BlockDevice, I: Into<u64> + Sized> EditableBlock<'d, T, D, I> {
+    pub fn write(self) -> FsResult<()> {
+        self.device.write(self.idx, &self.data)
+    }
+}
+
+impl<'d, T: Sized, D: BlockDevice, I: Into<u64> + Sized> Deref for EditableBlock<'d, T, D, I> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<'d, T: Sized, D: BlockDevice, I: Into<u64> + Sized> DerefMut for EditableBlock<'d, T, D, I> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+
+impl<B: BlockDevice> StructBlockDevice<B> for B {
+    fn get<I: Into<u64> + Sized, T: Sized + Default>(&mut self, idx: I) -> FsResult<T> {
+        let mut data = T::default();
+        self.read(idx, &mut data)?;
+        Ok(data)
+    }
+    fn get_mut<I: Into<u64> + Sized + Copy, T: Sized + Default>(&mut self, idx: I) -> FsResult<EditableBlock<'_, T, B, I>> {
+        let mut data = T::default();
+        self.read(idx, &mut data)?;
+        Ok( EditableBlock {
+                idx,
+                data,
+                device: self,
+        })
+    }
+}
+
 /// RAM disk block size
 const RAM_BS: usize = 4096;
 
@@ -120,6 +175,7 @@ impl<'a> RamDisk<'a> {
     fn block_slice(&mut self, index: u64) -> &mut [u8] {
         &mut self.disk[index as usize]
     }
+
 }
 
 
@@ -146,6 +202,10 @@ impl<'a> BlockDevice for RamDisk<'a> {
         copy(buffer, block, RAM_BS);
         Ok(())
     }
+
+    fn is_read_only(&self) -> bool {
+        false
+    }
 }
 
 /// simple struct that stores a file path without the separators
@@ -153,6 +213,9 @@ impl<'a> BlockDevice for RamDisk<'a> {
 pub struct Path {
     path: Vec<Vec<u8>>,
 }
+
+/// entry of a directory, a file or directory name
+pub type DirEntry = Vec<u8>;
 
 impl Path {
     pub fn parent_dir(&self) -> Option<Path> {
@@ -174,7 +237,7 @@ impl Path {
         let mut path: Vec<Vec<u8>> = Vec::new();
         let mut token = Vec::new();
         for &ch in string {
-            if ch == T::separator() {
+            if ch == SEPARATOR {
                 if !token.is_empty() {
                     path.push(token);
                     token = Vec::new();
@@ -185,22 +248,50 @@ impl Path {
                 return None;
             }
         }
+        if !token.is_empty() {
+            path.push(token);
+        }
         Some(Self{path})
     }
 }
 
 pub trait FileSystem<B: BlockDevice> : Sized  {
+    /// a handle to a file opened read-only to store read progress
+    type ReadProgress;
+
+    /// a handle to a file that is being written to to store write progress
+    type WriteProgress;
+
     /// allowed characters in file names
     fn allowed_chars() -> &'static [u8];
 
-    /// separates directory names
-    fn separator() -> u8;
-
     /// creates a new file system using the `block_device` or fails if the root block is not valid
-    fn mount(block_device: B) -> Result<Self, FsError>;
+    fn mount(block_device: B) -> FsResult<Self>;
+    
+    /// Formats the given device and returns the fs
+    fn format(block_device: B) -> FsResult<Self>;
 
-    /// opens a file / directory and returns a file descriptor
-    fn open(&mut self, path: Path) -> Result<i64, FsError>;
+    /// Returns `true` if the file system if read-only
+    fn is_read_only(&self) -> bool;
+
+    /// opens a file and returns write handle
+    fn open_write(&mut self, path: Path) -> FsResult<Self::WriteProgress>;
+
+    /// opens a file and returns read handle
+    fn open_read(&mut self, path: Path) -> FsResult<Self::ReadProgress>;
+
+    /// reads a directories content
+    fn read_dir(&mut self, path: Path) -> FsResult<Vec<DirEntry>>;
+
+    /// writes to an opened file and updates write progress
+    fn write(&mut self, progress: &mut Self::WriteProgress, buffer: &[u8]) -> FsResult<()>;
+
+    /// reads from the opened file to the buffer, returns the number of read bytes
+    fn read(&mut self, progress: &mut Self::ReadProgress, buffer: &mut [u8]) -> FsResult<u64>;
+
+    /// performs a seek on the read progress, when being read the next time, it will continue after
+    /// the specified `seeking` bytes
+    fn seek(&mut self, progress: &mut Self::ReadProgress, seeking: u64) -> FsResult<()>;
 
     /// deletes a file or directory
     fn delete(&mut self, path: Path) -> FsResult<()>;
@@ -212,14 +303,15 @@ pub trait FileSystem<B: BlockDevice> : Sized  {
     fn create_file(&mut self, path: Path) -> FsResult<()>;
 
     /// creates a new directory at the path
-    fn create_directory(&mut self, path: Path) -> FsResult<()>;
+    fn create_dir(&mut self, path: Path) -> FsResult<()>;
 
     /// returns `true` when the directory exists, `false` if it doesn't
-    fn exists_directory(&mut self, path: Path) -> FsResult<bool>;
+    fn exists_dir(&mut self, path: Path) -> FsResult<bool>;
 
     /// returns `true` when the directory exists, `false` if it doesn't
     fn exists_file(&mut self, path: Path) -> FsResult<bool>;
 }
+
 
 /// Blanket trait that is implemented for every `Sized` type.
 /// It allows for an easy conversion from a fixed size type to a slice of `u8`.
@@ -245,16 +337,6 @@ impl<T: Sized> AsU8Slice for T {
     }
 }
 
-pub fn test_fs() {
-    use crate::{serial_println};
-
-    let mut disk = vec![[0u8; RAM_BS]; 8192 + 64];
-    let device = RamDisk::new(&mut disk);
-    let _fs = fffs::FileSystem::format(device, &[]).unwrap();
-
-    serial_println!("[ok]");
-}
-
 #[test_case]
 fn test_ramdisk() {
     use crate::{serial_print, serial_println};
@@ -276,3 +358,4 @@ fn test_ramdisk() {
     assert_eq!(1, block[2888]);
     serial_println!("[ok]");
 }
+
