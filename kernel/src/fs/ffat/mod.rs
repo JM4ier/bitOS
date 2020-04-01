@@ -159,6 +159,33 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
 }
 
 impl<B: BlockDevice> FFAT<B> {
+    fn get_sector(&mut self, path: Path) -> FsResult<Option<u64>> {
+        if path.is_root() {
+            return Ok(Some(self.root_sector()?.root));
+        }
+    }
+
+    /// reads directory at address and
+    fn read_dir_at_addr(&mut self, addr: u64) -> FsResult<Vec<DirEntry>> {
+        let (table, table_idx) = self.sector_to_table_location().unwrap();
+
+    }
+
+    /// returns the next sector of the specified sector
+    fn next_sector(&mut self, sector: u64) -> FsResult<Option<u64>> {
+        if let Some((table, table_idx)) = self.sector_to_table_location(sector) {
+            let table = self.device.get::<_, SectorTable>(table);
+            let next = table.entries[table_idx].next;
+            if next <= 0 {
+                Ok(None)
+            } else {
+                Ok(Some(next))
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
     fn _read(&mut self, progress: &mut FileProgress, buf: &mut [u8]) -> FsResult<u64> {
         let mut bufidx = 0; 
         let mut sector_buffer = [0u8; SECTOR_SIZE as usize];

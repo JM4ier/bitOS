@@ -218,15 +218,18 @@ pub struct Path {
 pub type DirEntry = Vec<u8>;
 
 impl Path {
+    pub fn is_root(&self) -> bool {
+        self.path.len() == 0
+    }
     pub fn parent_dir(&self) -> Option<Path> {
-        if self.path.len() == 0 {
+        if self.is_root() {
             None
         } else {
             Some(Self{ path: self.path[..self.path.len()-1].to_vec() })
         }
     }
     pub fn name(&self) -> Option<Vec<u8>> {
-        if self.path.len() == 0 {
+        if self.is_root() {
             None
         } else {
             Some(self.path[self.path.len() - 1][..].to_vec())

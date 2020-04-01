@@ -107,7 +107,8 @@ impl Default for DirSector {
 
 impl DirSector {
     /// returns a vec of directory entries from the given sector
-    pub fn get_entries(&self) -> Vec<DirEntry> {
+    // FIXME does not include sector addresses in return vector
+    pub fn get_entries(&self) -> Vec<(DirEntry, u64)> {
         let mut entries = Vec::new();
         let mut entry = Vec::new();
         let mut idx = 0;
@@ -128,7 +129,8 @@ impl DirSector {
 
     /// returns a vec of DirSectors built from the directory entries
     /// The directory entries may not contain null `'\0'` characters.
-    pub fn from_entries(entries: Vec<DirEntry>) -> Vec<Self> {
+    // FIXME does not put sector addresses in dirsector
+    pub fn from_entries(entries: Vec<(DirEntry, u64)>) -> Vec<Self> {
         let max_len = SECTOR_SIZE - 8;
         let entries: Vec<Vec<u8>> = entries.into_iter().map(|mut entry| { entry.push(0); entry }).collect();
         let mut sectors = Vec::new();
