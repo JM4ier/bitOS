@@ -4,6 +4,7 @@ mod structs;
 use structs::*;
 
 pub const SECTOR_SIZE: u64 = 4096;
+pub const SECTOR_SIZE_U: usize = SECTOR_SIZE as usize;
 const FAT_ENTRIES_PER_SECTOR: u64 = SECTOR_SIZE / 32;
 
 pub struct FFAT<B: BlockDevice> {
@@ -51,7 +52,7 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
         };
 
         // push a reserved entry for each fat-table sector and one for the root sector
-        for i in 0..(fat_sectors+1) {
+        for _ in 0..(fat_sectors+1) {
             fat_table.push(reserved_fat_entry);
         }
 
@@ -106,41 +107,67 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
     }
 
     fn create_file(&mut self, path: Path) -> FsResult<()> {
-        panic!("not implemented");
+        let meta = Sector {
+            sector_type: SectorType::File,
+            size: 0, 
+            next: 0,
+        };
+        self.create(path, meta)?;
+        Ok(())
     }
 
     fn create_dir(&mut self, path: Path) -> FsResult<()> {
-        panic!("not implemented");
+        let meta = Sector {
+            sector_type: SectorType::Dir,
+            size: SECTOR_SIZE, 
+            next: 0,
+        };
+        let addr = self.create(path, meta)?;
+
+        // write an empty list of directory entries to the sector
+        let dir_entries = DirData::new();
+        let buffer = raw_dir_data(&dir_entries);
+        self.device.write(addr, &buffer[0])?;
+
+        Ok(())
     }
 
     fn exists_file(&mut self, path: Path) -> FsResult<bool> {
-        panic!("not implemented");
+        self.exists(path)
     }
 
     fn exists_dir(&mut self, path: Path) -> FsResult<bool> {
-        panic!("not implemented");
+        self.exists(path)
     }
 
-    fn read_dir(&mut self, path: Path) -> FsResult<Vec<DirEntry>> {
-        panic!("not implemented");
+    fn read_dir(&mut self, path: Path) -> FsResult<Vec<Filename>> {
+        let fs_root = self.root_sector()?.root;
+        let addr = self.walk(fs_root, path)?;
+        let dirdata = self.read_dir_at_addr(addr)?;
+        let entries = dirdata.into_iter().map(|x| x.1).collect();
+        Ok(entries)
     }
 
     fn open_write(&mut self, path: Path) -> FsResult<WriteProgress> {
+        // TODO
         panic!("not implemented");
     }
 
     fn open_read(&mut self, path: Path) -> FsResult<ReadProgress> {
+        // TODO
         panic!("not implemented");
     }
 
     fn write(&mut self, progress: &mut WriteProgress, buffer: &[u8]) -> FsResult<()> {
         assert!(buffer.len() % SECTOR_SIZE as usize == 0);
-        self._write(&mut progress.0, buffer)
+        // TODO
+        panic!("not implemented");
     }
 
     fn read(&mut self, progress: &mut ReadProgress, buffer: &mut [u8]) -> FsResult<u64> {
         assert!(buffer.len() % SECTOR_SIZE as usize == 0);
-        self._read(&mut progress.0, buffer)
+        // TODO
+        panic!("not implemented");
     }
 
     fn seek(&mut self, progress: &mut ReadProgress, seeking: u64) -> FsResult<()> {
@@ -149,137 +176,116 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
     }
 
     fn delete(&mut self, path: Path) -> FsResult<()> {
+        // TODO
         panic!("not implemented");
     }
 
     fn clear(&mut self, path: Path) -> FsResult<()> {
+        // TODO
         panic!("not implemented");
     }
 
 }
 
 impl<B: BlockDevice> FFAT<B> {
-    fn get_sector(&mut self, path: Path) -> FsResult<Option<u64>> {
-        if path.is_root() {
-            return Ok(Some(self.root_sector()?.root));
+
+    fn read_sector_meta(&mut self, addr: u64) -> FsResult<Sector> {
+        if let Some((table_addr, table_idx)) = self.sector_to_table_location(addr) {
+            let table = self.device.get::<_, AllocationTable>(table_addr)?;
+            Ok(table.entries[table_idx as usize])
+        } else {
+            Err(FsError::IllegalOperation)
         }
     }
 
-    /// reads directory at address and
-    fn read_dir_at_addr(&mut self, addr: u64) -> FsResult<Vec<DirEntry>> {
-        let (table, table_idx) = self.sector_to_table_location().unwrap();
+    fn write_sector_meta(&mut self, addr: u64, meta: Sector) -> FsResult<()> {
+        if let Some((table_addr, table_idx)) = self.sector_to_table_location(addr) {
+            let mut table = self.device.get_mut::<_, AllocationTable>(table_addr)?;
+            table.entries[table_idx as usize] = meta;
+            table.write()?;
+            Ok(())
+        } else {
+            Err(FsError::IllegalOperation)
+        }
+    }
 
+
+    /// walks the path and returns the address of the target file or directory
+    fn walk(&mut self, addr: u64, path: Path) -> FsResult<u64> {
+        let (head, tail) = path.head_tail();
+        if let Some(head) = head {
+            let dir_data = self.read_dir_at_addr(addr)?; 
+
+            let mut next_addr = None;
+            for entry in dir_data {
+                if entry.1 == head {
+                    next_addr = Some(entry.0);
+                    break;
+                }
+            }
+            if let Some(a) = next_addr {
+                self.walk(a, tail)
+            } else {
+                Err(FsError::FileNotFound)
+            }
+        } else {
+            Ok(addr)
+        }
+    }
+
+    /// gets a free sector and returns it
+    fn allocate_sector(&mut self) -> FsResult<u64> {
+        let mut root_sector = self.device.get::<_, RootSector>(0u64)?;
+        let addr = root_sector.free;
+        let next = self.next_sector(addr)?;
+        if let Some(next) = next {
+            root_sector.free = next;
+        } else {
+            return Err(FsError::NotEnoughSpace);
+        }
+        self.device.write(0u64, &root_sector)?;
+        Ok(addr)
+    }
+
+    /// reads directory at address
+    fn read_dir_at_addr(&mut self, addr: u64) -> FsResult<DirData> {
+        let entry = self.read_sector_meta(addr)?;
+        if entry.sector_type == SectorType::Dir {
+            let sectors = (entry.size as usize + SECTOR_SIZE_U - 1) / SECTOR_SIZE_U;
+            let mut buffers = vec![[0u8; SECTOR_SIZE_U]; sectors];
+            
+            let mut addr = addr;
+            for i in 0..sectors {
+                self.device.read(addr, &mut buffers[i])?;
+                if let Some(a) = self.next_sector(addr)? {
+                    addr = a;
+                } else {
+                    return Err(FsError::InternalError);
+                }
+            }
+
+            let dir_data = dir_data_from_raw(&buffers);
+            Ok(dir_data)
+        } else {
+            Err(FsError::IllegalOperation)
+        }
+    }
+
+    /// writes directory data at specified address
+    fn write_dir_at_addr(&mut self, addr: u64, dir_data: &DirData) -> FsResult<()> {
+        // TODO
+        panic!("not implemented");
     }
 
     /// returns the next sector of the specified sector
     fn next_sector(&mut self, sector: u64) -> FsResult<Option<u64>> {
-        if let Some((table, table_idx)) = self.sector_to_table_location(sector) {
-            let table = self.device.get::<_, SectorTable>(table);
-            let next = table.entries[table_idx].next;
-            if next <= 0 {
-                Ok(None)
-            } else {
-                Ok(Some(next))
-            }
-        } else {
+        let next = self.read_sector_meta(sector)?.next;
+
+        if next <= 0 {
             Ok(None)
+        } else {
+            Ok(Some(next))
         }
-    }
-
-    fn _read(&mut self, progress: &mut FileProgress, buf: &mut [u8]) -> FsResult<u64> {
-        let mut bufidx = 0; 
-        let mut sector_buffer = [0u8; SECTOR_SIZE as usize];
-
-        while bufidx < buf.len() {
-            // bytes that can be read from the current sector
-            let bytes_in_sector = SECTOR_SIZE as usize - progress.current_bytes_processed();
-
-            // bytes that should be read from the current sector
-            let bytes_to_read = bytes_in_sector.min(buf.len() as usize - bufidx);
-
-            self.device.read(progress.sector, &mut sector_buffer)?;
-
-            // copy bytes to destination buffer
-            copy_offset(&sector_buffer, buf, bytes_to_read, progress.current_bytes_processed(), bufidx);
-
-            bufidx += bytes_to_read;
-            progress.byte_offset += bytes_to_read as u64;
-
-            // check if reading past a sector border and finding the appropriate next sector
-            if progress.byte_offset >= SECTOR_SIZE {
-                assert!(progress.byte_offset == SECTOR_SIZE);
-                progress.byte_offset = 0;
-                
-                // read FAT
-                if let Some((table_sector, table_idx)) = self.sector_to_table_location(progress.sector) {
-                    let mut table = AllocationTable::default();
-                    self.device.read(table_sector, &mut table)?;
-                    progress.sector = table.entries[table_idx as usize].next;
-                    if let None = self.sector_to_table_location(progress.sector) {
-                        // end of file
-                        break;
-                    }
-                } else {
-                    panic!("Just read a reserved sector instead of a file");
-                }
-            }
-        }
-        Ok(bufidx as u64)
-    }
-
-    fn _write(&mut self, progress: &mut FileProgress, buf: &[u8]) -> FsResult<()> {
-        let mut bufidx = 0;
-        
-        while bufidx < buf.len() {
-            // bytes that can still be written to the same sector
-            let bytes_in_sector = SECTOR_SIZE as usize - progress.current_bytes_processed();
-
-            // bytes to be written
-            let bytes_to_write = bytes_in_sector.min(buf.len() - bufidx as usize);
-
-            let mut sector_buffer = [0u8; SECTOR_SIZE as usize];
-            copy_offset(&buf, &mut sector_buffer, bytes_to_write, bufidx, progress.current_bytes_processed());
-
-            self.device.write(progress.sector, &sector_buffer)?;
-
-            bufidx += bytes_to_write as usize;
-            progress.byte_offset += bytes_to_write as u64;
-
-            if progress.byte_offset >= SECTOR_SIZE {
-                assert_eq!(progress.byte_offset, SECTOR_SIZE);
-                progress.byte_offset = 0;
-
-                let root_sector = self.root_sector()?;
-
-                if let Some((table_sector, table_idx)) = self.sector_to_table_location(root_sector.free) {
-                    let next = root_sector.free;
-
-                    let mut table = AllocationTable::default();
-                    self.device.read(progress.sector, &mut table)?;
-
-                    table.entries[table_idx as usize].next = next;
-                    table.entries[table_idx as usize].sector_type = SectorType::Data;
-
-                    self.device.write(progress.sector, &table)?;
-
-                    progress.sector = next;
-
-                    if let Some((next_table_sector, next_table_idx)) = self.sector_to_table_location(next) {
-                        self.device.read(next, &mut table)?;
-                        table.entries[next_table_idx as usize].next = 0;
-                        table.entries[next_table_idx as usize].sector_type = SectorType::Data;
-                        self.device.write(next, &table)?;
-                    } else {
-                        return Err(FsError::NotEnoughSpace);
-                    }
-                } else {
-                    return Err(FsError::NotEnoughSpace);
-                }
-                
-            }
-
-        }
-        Ok(())
     }
 
     /// returns the sector in which the table entry for the given sector lies
@@ -289,7 +295,7 @@ impl<B: BlockDevice> FFAT<B> {
             if sector < root_sector.root || sector >= root_sector.sectors {
                 None
             } else {
-                Some((sector / FAT_ENTRIES_PER_SECTOR, sector % FAT_ENTRIES_PER_SECTOR))
+                Some((sector / FAT_ENTRIES_PER_SECTOR + root_sector.table_begin, sector % FAT_ENTRIES_PER_SECTOR))
             }
         } else {
             None
@@ -300,6 +306,48 @@ impl<B: BlockDevice> FFAT<B> {
         let mut root_sector = RootSector::default();
         self.device.read(0u64, &mut root_sector)?;
         Ok(root_sector)
+    }
+
+    fn exists(&mut self, path: Path) -> FsResult<bool> {
+        let fs_root = self.root_sector()?.root;
+        match self.walk(fs_root, path) {
+            Err(FsError::FileNotFound) => Ok(false),
+            Ok(_) => Ok(true),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn create(&mut self, path: Path, meta: Sector) -> FsResult<u64> {
+        if let Some(parent) = path.parent_dir() {
+            let fs_root = self.root_sector()?.root;
+            let parent_addr = self.walk(fs_root, parent)?;
+            let mut dir_data = self.read_dir_at_addr(parent_addr)?;
+
+            let filename = match path.name() {
+                Some(name) => name,
+                None => return Err(FsError::IllegalOperation),
+            };
+
+            for dir_entry in dir_data.iter() {
+                if dir_entry.1 == filename {
+                    return Err(FsError::IllegalOperation);
+                }
+            }
+
+            // get a free sector
+            let file_addr = self.allocate_sector()?;
+            dir_data.push((file_addr, filename));
+
+            // write file/directory metadata
+            self.write_sector_meta(file_addr, meta)?;
+
+            // write directory data
+            self.write_dir_at_addr(parent_addr, &dir_data)?;
+            
+            Ok(file_addr)
+        } else {
+            Err(FsError::IllegalOperation)
+        }
     }
 }
 

@@ -215,7 +215,7 @@ pub struct Path {
 }
 
 /// entry of a directory, a file or directory name
-pub type DirEntry = Vec<u8>;
+pub type Filename = Vec<u8>;
 
 impl Path {
     pub fn is_root(&self) -> bool {
@@ -256,6 +256,15 @@ impl Path {
         }
         Some(Self{path})
     }
+    pub fn head_tail(mut self) -> (Option<Filename>, Self) {
+        if self.is_root() {
+            (None, self)
+        } else {
+            let tail = self.path.split_off(1);
+            let head = self.path[0].clone();
+            (Some(head), Self{path: tail})
+        }
+    }
 }
 
 pub trait FileSystem<B: BlockDevice> : Sized  {
@@ -284,7 +293,7 @@ pub trait FileSystem<B: BlockDevice> : Sized  {
     fn open_read(&mut self, path: Path) -> FsResult<Self::ReadProgress>;
 
     /// reads a directories content
-    fn read_dir(&mut self, path: Path) -> FsResult<Vec<DirEntry>>;
+    fn read_dir(&mut self, path: Path) -> FsResult<Vec<Filename>>;
 
     /// writes to an opened file and updates write progress
     fn write(&mut self, progress: &mut Self::WriteProgress, buffer: &[u8]) -> FsResult<()>;
