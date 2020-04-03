@@ -265,6 +265,13 @@ impl Path {
             (Some(head), Self{path: tail})
         }
     }
+    pub fn concat(&self, child: Filename) -> Path {
+        let mut child_path = self.path.clone();
+        child_path.push(child);
+        Path {
+            path: child_path,
+        }
+    }
 }
 
 pub trait FileSystem<B: BlockDevice> : Sized  {

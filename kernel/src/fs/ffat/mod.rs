@@ -112,7 +112,7 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
             size: 0, 
             next: 0,
         };
-        self.create(path, meta)?;
+        self.create(&path, meta)?;
         Ok(())
     }
 
@@ -122,7 +122,7 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
             size: SECTOR_SIZE, 
             next: 0,
         };
-        let addr = self.create(path, meta)?;
+        let addr = self.create(&path, meta)?;
 
         // write an empty list of directory entries to the sector
         let dir_entries = DirData::new();
@@ -133,26 +133,26 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
     }
 
     fn exists_file(&mut self, path: Path) -> FsResult<bool> {
-        self.exists(path)
+        self.exists(&path)
     }
 
     fn exists_dir(&mut self, path: Path) -> FsResult<bool> {
-        self.exists(path)
+        self.exists(&path)
     }
 
     fn read_dir(&mut self, path: Path) -> FsResult<Vec<Filename>> {
-        let addr = self.walk(path)?;
+        let addr = self.walk(&path)?;
         let dirdata = self.read_dir_at_addr(addr)?;
         let entries = dirdata.into_iter().map(|x| x.1).collect();
         Ok(entries)
     }
 
     fn open_write(&mut self, path: Path) -> FsResult<WriteProgress> {
-        Ok(WriteProgress(self.open(path)?))
+        Ok(WriteProgress(self.open(&path)?))
     }
 
     fn open_read(&mut self, path: Path) -> FsResult<ReadProgress> {
-        Ok(ReadProgress(self.open(path)?))
+        Ok(ReadProgress(self.open(&path)?))
     }
 
     fn write(&mut self, progress: &mut WriteProgress, buffer: &[u8]) -> FsResult<()> {
@@ -173,6 +173,13 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
     }
 
     fn delete(&mut self, path: Path) -> FsResult<()> {
+        let addr = self.walk(&path)?;
+        let meta = self.read_sector_meta(addr)?;
+
+        if let SectorType::Dir = meta.sector_type {
+            self.delete_children(&path)?;
+        }
+        
         let name = if let Some(name) = path.name() {
             name
         } else {
@@ -184,7 +191,7 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
             return Err(FsError::IllegalOperation);
         };
 
-        let parent_addr = self.walk(parent_dir)?;
+        let parent_addr = self.walk(&parent_dir)?;
         let dir_data = self.read_dir_at_addr(parent_addr)?;
 
         // find childs address
@@ -203,8 +210,28 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
     }
 
     fn clear(&mut self, path: Path) -> FsResult<()> {
-        // TODO
-        panic!("not implemented");
+        let addr = self.walk(&path)?;
+        let meta = self.read_sector_meta(addr)?;
+
+        if let SectorType::Dir = meta.sector_type {
+            self.delete_children(&path)?;
+        }
+
+        match meta.sector_type {
+            SectorType::Dir => {
+                self.clear_at_addr(addr)?;
+                let dir_data = DirData::new();
+                self.write_dir_at_addr(addr, &dir_data)?;
+            },
+            SectorType::File => {
+                self.clear_at_addr(addr)?;
+            },
+            SectorType::Data | 
+            SectorType::Free | 
+            SectorType::Reserved => return Err(FsError::IllegalOperation),
+        }
+
+        Ok(())
     }
 
 }
@@ -233,8 +260,8 @@ impl<B: BlockDevice> FFAT<B> {
 
 
     /// walks the path and returns the address of the target file or directory
-    fn walk_from(&mut self, addr: u64, path: Path) -> FsResult<u64> {
-        let (head, tail) = path.head_tail();
+    fn walk_from(&mut self, addr: u64, path: &Path) -> FsResult<u64> {
+        let (head, tail) = path.clone().head_tail();
         if let Some(head) = head {
             let dir_data = self.read_dir_at_addr(addr)?; 
 
@@ -246,7 +273,7 @@ impl<B: BlockDevice> FFAT<B> {
                 }
             }
             if let Some(a) = next_addr {
-                self.walk_from(a, tail)
+                self.walk_from(a, &tail)
             } else {
                 Err(FsError::FileNotFound)
             }
@@ -256,7 +283,7 @@ impl<B: BlockDevice> FFAT<B> {
     }
 
     /// walks the path and starts from the root directory
-    fn walk(&mut self, path:  Path) -> FsResult<u64> {
+    fn walk(&mut self, path:  &Path) -> FsResult<u64> {
         let fs_root = self.root_sector()?.root;
         self.walk_from(fs_root, path)
     }
@@ -404,7 +431,7 @@ impl<B: BlockDevice> FFAT<B> {
         Ok(root_sector)
     }
 
-    fn exists(&mut self, path: Path) -> FsResult<bool> {
+    fn exists(&mut self, path: &Path) -> FsResult<bool> {
         match self.walk(path) {
             Err(FsError::FileNotFound) => Ok(false),
             Ok(_) => Ok(true),
@@ -412,9 +439,9 @@ impl<B: BlockDevice> FFAT<B> {
         }
     }
 
-    fn create(&mut self, path: Path, meta: Sector) -> FsResult<u64> {
+    fn create(&mut self, path: &Path, meta: Sector) -> FsResult<u64> {
         if let Some(parent) = path.parent_dir() {
-            let parent_addr = self.walk(parent)?;
+            let parent_addr = self.walk(&parent)?;
             let mut dir_data = self.read_dir_at_addr(parent_addr)?;
 
             let filename = match path.name() {
@@ -447,7 +474,7 @@ impl<B: BlockDevice> FFAT<B> {
     /// opens a file and returns a fileprogress to it
     /// returns err if an underlying read operation failed
     /// or the path refers to a directory
-    fn open(&mut self, path: Path) -> FsResult<FileProgress> {
+    fn open(&mut self, path: &Path) -> FsResult<FileProgress> {
         let addr = self.walk(path)?;
         match self.read_sector_meta(addr)?.sector_type {
             SectorType::File => 
@@ -457,6 +484,17 @@ impl<B: BlockDevice> FFAT<B> {
                 }),
             _ => Err(FsError::IllegalOperation),
         }
+    }
+
+    /// deletes all child elements of this directory
+    fn delete_children(&mut self, path: &Path) -> FsResult<()> {
+        let addr = self.walk(path)?;
+        let dir_data = self.read_dir_at_addr(addr)?;
+        let children: Vec<Path> = dir_data.into_iter().map(|entry| path.concat(entry.1)).collect();
+        for child in children {
+            self.delete(child)?;
+        }
+        Ok(())
     }
 }
 
