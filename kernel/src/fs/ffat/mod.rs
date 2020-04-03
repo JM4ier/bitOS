@@ -148,16 +148,60 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
     }
 
     fn open_write(&mut self, path: Path) -> FsResult<WriteProgress> {
+        self.exists(&path, SectorType::File)?;
+        self.clear(path.clone())?;
         Ok(WriteProgress(self.open(&path)?))
     }
 
     fn open_read(&mut self, path: Path) -> FsResult<ReadProgress> {
+        self.exists(&path, SectorType::File)?;
         Ok(ReadProgress(self.open(&path)?))
     }
 
     fn write(&mut self, progress: &mut WriteProgress, buffer: &[u8]) -> FsResult<()> {
-        // TODO
-        panic!("not implemented");
+        let progress = &mut progress.0;
+
+        let mut buffer_idx = 0;
+
+        let mut buf = [0u8; SECTOR_SIZE_U];
+
+        while buffer_idx < buffer.len() {
+            let bytes_from_sector_start = progress.byte_offset as usize % SECTOR_SIZE_U;
+            let bytes_to_sector_end = SECTOR_SIZE_U - bytes_from_sector_start;
+            let bytes_to_buffer_end = buffer.len() - buffer_idx;
+            let write_bytes = bytes_to_sector_end.min(bytes_to_buffer_end);
+
+            self.device.read(progress.sector, &mut buf)?;
+            copy_offset(buffer, &mut buf, write_bytes, buffer_idx, bytes_from_sector_start);
+            self.device.write(progress.sector, &buf)?;
+
+            buffer_idx += write_bytes;
+
+            let offset = progress.byte_offset as usize;
+
+            if offset / SECTOR_SIZE_U < (offset + write_bytes) / SECTOR_SIZE_U {
+                // need new sector for next data
+                let new_sector = self.allocate_sector()?;
+
+                // write new sector metadata
+                let new_meta = Sector {
+                    sector_type: SectorType::Data,
+                    size: 0,
+                    next: 0,
+                };
+                self.write_sector_meta(new_sector, new_meta)?;
+
+                // link previous data block with this one
+                let mut old_meta = self.read_sector_meta(progress.sector)?;
+                old_meta.next = new_sector;
+                self.write_sector_meta(progress.sector, old_meta)?;
+
+                progress.sector = new_sector;
+            }
+
+            progress.byte_offset += write_bytes as u64;
+        }
+        Ok(())
     }
 
     fn read(&mut self, progress: &mut ReadProgress, buffer: &mut [u8]) -> FsResult<u64> {
