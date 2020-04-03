@@ -44,7 +44,7 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
         let free_sectors = sectors - fat_sectors - 2;
 
         let mut fat_table = Vec::with_capacity(sectors as usize);
-        
+
         let reserved_fat_entry = Sector {
             sector_type: SectorType::Reserved, 
             size: 0,
@@ -141,21 +141,18 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
     }
 
     fn read_dir(&mut self, path: Path) -> FsResult<Vec<Filename>> {
-        let fs_root = self.root_sector()?.root;
-        let addr = self.walk(fs_root, path)?;
+        let addr = self.walk(path)?;
         let dirdata = self.read_dir_at_addr(addr)?;
         let entries = dirdata.into_iter().map(|x| x.1).collect();
         Ok(entries)
     }
 
     fn open_write(&mut self, path: Path) -> FsResult<WriteProgress> {
-        // TODO
-        panic!("not implemented");
+        Ok(WriteProgress(self.open(path)?))
     }
 
     fn open_read(&mut self, path: Path) -> FsResult<ReadProgress> {
-        // TODO
-        panic!("not implemented");
+        Ok(ReadProgress(self.open(path)?))
     }
 
     fn write(&mut self, progress: &mut WriteProgress, buffer: &[u8]) -> FsResult<()> {
@@ -211,7 +208,7 @@ impl<B: BlockDevice> FFAT<B> {
 
 
     /// walks the path and returns the address of the target file or directory
-    fn walk(&mut self, addr: u64, path: Path) -> FsResult<u64> {
+    fn walk_from(&mut self, addr: u64, path: Path) -> FsResult<u64> {
         let (head, tail) = path.head_tail();
         if let Some(head) = head {
             let dir_data = self.read_dir_at_addr(addr)?; 
@@ -224,13 +221,19 @@ impl<B: BlockDevice> FFAT<B> {
                 }
             }
             if let Some(a) = next_addr {
-                self.walk(a, tail)
+                self.walk_from(a, tail)
             } else {
                 Err(FsError::FileNotFound)
             }
         } else {
             Ok(addr)
         }
+    }
+
+    /// walks the path and starts from the root directory
+    fn walk(&mut self, path:  Path) -> FsResult<u64> {
+        let fs_root = self.root_sector()?.root;
+        self.walk_from(fs_root, path)
     }
 
     /// gets a free sector and returns it
@@ -253,7 +256,7 @@ impl<B: BlockDevice> FFAT<B> {
         if entry.sector_type == SectorType::Dir {
             let sectors = (entry.size as usize + SECTOR_SIZE_U - 1) / SECTOR_SIZE_U;
             let mut buffers = vec![[0u8; SECTOR_SIZE_U]; sectors];
-            
+
             let mut addr = addr;
             for i in 0..sectors {
                 self.device.read(addr, &mut buffers[i])?;
@@ -309,8 +312,7 @@ impl<B: BlockDevice> FFAT<B> {
     }
 
     fn exists(&mut self, path: Path) -> FsResult<bool> {
-        let fs_root = self.root_sector()?.root;
-        match self.walk(fs_root, path) {
+        match self.walk(path) {
             Err(FsError::FileNotFound) => Ok(false),
             Ok(_) => Ok(true),
             Err(err) => Err(err),
@@ -319,8 +321,7 @@ impl<B: BlockDevice> FFAT<B> {
 
     fn create(&mut self, path: Path, meta: Sector) -> FsResult<u64> {
         if let Some(parent) = path.parent_dir() {
-            let fs_root = self.root_sector()?.root;
-            let parent_addr = self.walk(fs_root, parent)?;
+            let parent_addr = self.walk(parent)?;
             let mut dir_data = self.read_dir_at_addr(parent_addr)?;
 
             let filename = match path.name() {
@@ -343,10 +344,25 @@ impl<B: BlockDevice> FFAT<B> {
 
             // write directory data
             self.write_dir_at_addr(parent_addr, &dir_data)?;
-            
+
             Ok(file_addr)
         } else {
             Err(FsError::IllegalOperation)
+        }
+    }
+
+    /// opens a file and returns a fileprogress to it
+    /// returns err if an underlying read operation failed
+    /// or the path refers to a directory
+    fn open(&mut self, path: Path) -> FsResult<FileProgress> {
+        let addr = self.walk(path)?;
+        match self.read_sector_meta(addr)?.sector_type {
+            SectorType::File => 
+                Ok(FileProgress {
+                    byte_offset: 0,
+                    sector: addr,
+                }),
+            _ => Err(FsError::IllegalOperation),
         }
     }
 }
