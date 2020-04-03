@@ -1,4 +1,3 @@
-use crate::fs::*;
 use super::*;
 
 use bytevec::*;
@@ -18,8 +17,6 @@ impl FileProgress {
     }
 }
 
-
-use crate::fs::*;
 
 #[repr(align(4096))]
 pub struct RootSector {
@@ -98,7 +95,7 @@ pub fn raw_dir_data(data: &DirData) -> Vec<[u8; SECTOR_SIZE_U]> {
     let mut raw = Vec::with_capacity(sectors as usize);
 
     let mut bytes_processed = 0;
-    for i in 0..sectors {
+    for _ in 0..sectors {
         let mut sector = [0u8; SECTOR_SIZE_U];
         let bytes_to_copy = (bytes.len() - bytes_processed).min(SECTOR_SIZE_U);
         copy_offset(&bytes, &mut sector, bytes_to_copy, bytes_processed, 0);

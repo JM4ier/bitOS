@@ -156,15 +156,49 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
     }
 
     fn write(&mut self, progress: &mut WriteProgress, buffer: &[u8]) -> FsResult<()> {
-        assert!(buffer.len() % SECTOR_SIZE as usize == 0);
         // TODO
         panic!("not implemented");
     }
 
     fn read(&mut self, progress: &mut ReadProgress, buffer: &mut [u8]) -> FsResult<u64> {
-        assert!(buffer.len() % SECTOR_SIZE as usize == 0);
-        // TODO
-        panic!("not implemented");
+        let progress = &mut progress.0;
+
+        if progress.sector == 0 {
+            return Ok(0u64);
+        }
+
+        let mut buffer_idx = 0;
+
+        let mut buf = [0u8; SECTOR_SIZE_U];
+
+        while buffer_idx < buffer.len() {
+            let bytes_from_sector_start = progress.byte_offset as usize % SECTOR_SIZE_U;
+            let bytes_to_sector_end = SECTOR_SIZE_U - bytes_from_sector_start;
+            let bytes_to_buffer_end = buffer.len() - buffer_idx;
+            let read_bytes = bytes_to_sector_end.min(bytes_to_buffer_end);
+
+            self.device.read(progress.sector, &mut buf)?;
+            copy_offset(&buf, buffer, read_bytes, bytes_from_sector_start, buffer_idx);
+
+            buffer_idx += read_bytes;
+
+            let offset = progress.byte_offset as usize;
+            if offset / SECTOR_SIZE_U < (offset + read_bytes) / SECTOR_SIZE_U {
+                // arrived at next sector
+                if let Some(next) = self.next_sector(progress.sector)? {
+                    // there is a next sector
+                    progress.sector = next;
+                } else {
+                    // at end of file, return number of read bytes
+                    progress.sector = 0;
+                    return Ok(buffer_idx as u64);
+                }
+            }
+
+            progress.byte_offset += read_bytes as u64;
+        }
+
+        Ok(buffer_idx as u64)
     }
 
     fn seek(&mut self, progress: &mut ReadProgress, seeking: u64) -> FsResult<()> {
