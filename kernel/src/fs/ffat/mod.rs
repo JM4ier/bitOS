@@ -133,11 +133,11 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
     }
 
     fn exists_file(&mut self, path: Path) -> FsResult<bool> {
-        self.exists(&path)
+        self.exists(&path, SectorType::File)
     }
 
     fn exists_dir(&mut self, path: Path) -> FsResult<bool> {
-        self.exists(&path)
+        self.exists(&path, SectorType::Dir)
     }
 
     fn read_dir(&mut self, path: Path) -> FsResult<Vec<Filename>> {
@@ -431,10 +431,13 @@ impl<B: BlockDevice> FFAT<B> {
         Ok(root_sector)
     }
 
-    fn exists(&mut self, path: &Path) -> FsResult<bool> {
+    fn exists(&mut self, path: &Path, sector_type: SectorType) -> FsResult<bool> {
         match self.walk(path) {
             Err(FsError::FileNotFound) => Ok(false),
-            Ok(_) => Ok(true),
+            Ok(addr) => {
+                let meta = self.read_sector_meta(addr)?;
+                Ok(meta.sector_type == sector_type)
+            },
             Err(err) => Err(err),
         }
     }
