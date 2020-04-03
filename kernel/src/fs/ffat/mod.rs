@@ -173,8 +173,33 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
     }
 
     fn delete(&mut self, path: Path) -> FsResult<()> {
-        // TODO
-        panic!("not implemented");
+        let name = if let Some(name) = path.name() {
+            name
+        } else {
+            return Err(FsError::IllegalOperation);
+        };
+        let parent_dir = if let Some(parent_dir) = path.parent_dir() {
+            parent_dir
+        } else {
+            return Err(FsError::IllegalOperation);
+        };
+
+        let parent_addr = self.walk(parent_dir)?;
+        let dir_data = self.read_dir_at_addr(parent_addr)?;
+
+        // find childs address
+        let child_addr = dir_data.iter().filter(|entry| entry.1 == name).last();
+
+        if let Some((addr, _)) = child_addr {
+            // free child sectors
+            self.free_sectors(*addr)?;
+
+            // remove child entry from parent
+            let dir_data = dir_data.into_iter().filter(|entry| entry.1 != name).collect();
+            self.write_dir_at_addr(parent_addr, &dir_data)?;
+        }
+
+        Ok(())
     }
 
     fn clear(&mut self, path: Path) -> FsResult<()> {
@@ -246,8 +271,43 @@ impl<B: BlockDevice> FFAT<B> {
         } else {
             return Err(FsError::NotEnoughSpace);
         }
+
+        // change metadata
+        self.write_sector_meta(addr, Sector { 
+            sector_type: SectorType::Free, 
+            size: 0, 
+            next: 0 
+        })?;
+
         self.device.write(0u64, &root_sector)?;
         Ok(addr)
+    }
+
+    /// frees the linkage of sectors beginning at addr
+    fn free_sectors(&mut self, addr: u64) -> FsResult<()> {
+        let mut root_sector = self.root_sector()?;
+        let mut end_addr = addr;
+        loop {
+            let mut meta = self.read_sector_meta(end_addr)?;
+            meta.sector_type = SectorType::Free;
+            meta.size = 0;
+            self.write_sector_meta(end_addr, meta)?;
+
+            if let Some(next) = self.next_sector(end_addr)? {
+                end_addr = next;
+            } else {
+                break;
+            }
+        }
+
+        let mut end_meta = self.read_sector_meta(end_addr)?;
+        end_meta.next = root_sector.free;
+        self.write_sector_meta(end_addr, end_meta)?;
+
+        root_sector.free = end_addr;
+        self.device.write(0u64, &root_sector)?;
+
+        Ok(())
     }
 
     /// reads directory at address
@@ -274,10 +334,43 @@ impl<B: BlockDevice> FFAT<B> {
         }
     }
 
+    /// clears the given file or directory from disk
+    fn clear_at_addr(&mut self, addr: u64) -> FsResult<()> {
+        if let Some(tail) = self.next_sector(addr)? {
+            self.free_sectors(tail)?;
+        }
+
+        let mut meta = self.read_sector_meta(addr)?;
+        meta.size = 0;
+        self.write_sector_meta(addr, meta)?;
+        Ok(())
+    }
+
     /// writes directory data at specified address
     fn write_dir_at_addr(&mut self, addr: u64, dir_data: &DirData) -> FsResult<()> {
-        // TODO
-        panic!("not implemented");
+        let raw_data = raw_dir_data(&dir_data);
+        let mut addr = addr;
+        for raw in raw_data {
+            self.device.write(addr, &raw)?;
+
+            // get next address 
+            let next = if let Some(addr) = self.next_sector(addr)? {
+                addr
+            } else {
+                self.allocate_sector()?
+            };
+            let mut meta = self.read_sector_meta(addr)?;
+            meta.next = next;
+            self.write_sector_meta(addr, meta)?;
+            addr = next;
+        }
+
+        // if there are some unwritten sectors left, free them
+        if let Some(next) = self.next_sector(addr)? {
+            self.free_sectors(next)?;
+        }
+
+        Ok(())
     }
 
     /// returns the next sector of the specified sector
