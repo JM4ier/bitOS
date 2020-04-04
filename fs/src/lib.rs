@@ -249,6 +249,38 @@ impl<'a> BlockDevice for RomDisk<'a> {
     }
 }
 
+pub struct OwnedDisk {
+    data: Vec<[u8; RAM_BS]>,
+}
+
+impl OwnedDisk {
+    pub fn new(mut data: Vec<[u8; RAM_BS]>) -> Self {
+        Self{data}
+    }
+}
+
+impl BlockDevice for OwnedDisk {
+    fn blocksize(&self) -> u64 {
+        RAM_BS as u64
+    }
+
+    fn blocks(&self) -> u64 {
+        self.data.len() as u64
+    }
+
+    fn is_read_only(&self) -> bool {
+        false
+    }
+
+    fn read_block(&mut self, index: u64, buffer: &mut [u8]) -> FsResult<()> {
+        RamDisk::new(&mut self.data).read_block(index, buffer)
+    }
+
+    fn write_block(&mut self, index: u64, buffer: &[u8]) -> FsResult<()> {
+        RamDisk::new(&mut self.data).write_block(index, buffer)
+    }
+}
+
 /// simple struct that stores a file path without the separators
 #[derive(Clone)]
 pub struct Path {

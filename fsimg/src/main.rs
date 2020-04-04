@@ -26,7 +26,7 @@ fn main() {
 
     let path = matches.value_of("directory").unwrap();
     let binary = matches.value_of("image").unwrap();
-    let size = 256 * 64; // number of fs blocks (4096 bytes each)
+    let size = 256 * 1; // number of fs blocks (4096 bytes each)
 
     let path = std_path::Path::new(path); 
     assert!(path.exists());
