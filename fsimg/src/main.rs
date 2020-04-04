@@ -3,7 +3,7 @@ use std::fs as std_fs;
 use std::path as std_path;
 
 use bit_fs::FileSystem;
-use std::io::{Read, Write, BufReader};
+use std::io::{Read, Write};
 
 use clap::{Arg, App};
 
@@ -59,10 +59,9 @@ where B: bit_fs::BlockDevice, FS: bit_fs::FileSystem<B> {
         } else {
             disk.create_file(disk_path.clone()).unwrap();
             let mut wp = disk.open_write(disk_path.clone()).unwrap();
-            let file = std_fs::File::open(path).unwrap();
-            let mut reader = BufReader::new(file);
+            let mut file = std_fs::File::open(path).unwrap();
             let mut contents = Vec::new();
-            reader.read(&mut contents).unwrap();
+            file.read_to_end(&mut contents).unwrap();
             disk.write(&mut wp, &contents).unwrap();
         }
     }
