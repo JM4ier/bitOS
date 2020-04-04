@@ -212,6 +212,43 @@ impl<'a> BlockDevice for RamDisk<'a> {
     }
 }
 
+pub struct RomDisk<'a> {
+    disk: &'a [u8],
+}
+
+impl<'a> RomDisk<'a> {
+    pub fn new (disk: &'a [u8]) -> Self {
+        Self {
+            disk,
+        }
+    }
+}
+
+impl<'a> BlockDevice for RomDisk<'a> {
+    fn blocksize(&self) -> u64 {
+        RAM_BS as u64
+    }
+
+    fn blocks(&self) -> u64 {
+        self.disk.len() as u64 / RAM_BS as u64
+    }
+
+    fn is_read_only(&self) -> bool {
+        true
+    }
+
+    fn read_block(&mut self, index: u64, buffer: &mut [u8]) -> FsResult<()> {
+        self.check_args(index, buffer)?;
+        let block = &self.disk[(RAM_BS * index as usize)..(RAM_BS * (index+1) as usize)];
+        copy(block, buffer, RAM_BS);
+        Ok(())
+    }
+
+    fn write_block(&mut self, _: u64, _: &[u8]) -> FsResult<()> {
+        Err(FsError::IllegalOperation(String::from("Can't write to ROM")))
+    }
+}
+
 /// simple struct that stores a file path without the separators
 #[derive(Clone)]
 pub struct Path {
