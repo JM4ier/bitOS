@@ -38,4 +38,4 @@ tags
 
 ## Project specific ignores
 disk.img
-
+base/bin
