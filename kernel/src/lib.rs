@@ -12,6 +12,7 @@
 #![allow(dead_code)]
 
 extern crate alloc;
+pub extern crate fs;
 
 use core::panic::PanicInfo;
 use linked_list_allocator::LockedHeap;
@@ -22,7 +23,6 @@ pub mod interrupts;
 pub mod gdt;
 pub mod memory;
 pub mod allocator;
-pub mod fs;
 
 #[cfg(test)]
 use bootloader::{entry_point, BootInfo};

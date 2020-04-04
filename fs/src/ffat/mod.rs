@@ -1,4 +1,4 @@
-use crate::fs::*;
+use crate::*;
 
 mod structs;
 use structs::*;

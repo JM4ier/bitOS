@@ -1,11 +1,15 @@
+#![no_std]
+#![feature(custom_test_frameworks)]
+
+extern crate alloc;
+
 use alloc::{vec, vec::Vec, boxed::Box};
-
 use core::ops::{Deref, DerefMut};
-
-pub mod ffat;
 
 mod copy;
 pub use copy::*;
+
+pub mod ffat;
 
 pub const SEPARATOR: u8 = b'/';
 
@@ -354,27 +358,5 @@ impl<T: Sized> AsU8Slice for T {
                 core::mem::size_of::<T>())
         }
     }
-}
-
-#[test_case]
-fn test_ramdisk() {
-    use crate::{serial_print, serial_println};
-    serial_print!("ramdisk test...");
-    let mut disk = vec![[0u8; RAM_BS]; 1000];
-    let mut device = RamDisk::new(&mut disk);
-    let mut block = [1u8; RAM_BS];
-    block[89] = 99;
-    device.write_block(27, &block).unwrap();
-    block[20] = 121;
-    device.write_block(100, &block).unwrap();
-    block[89] = 2;
-    device.read_block(27, &mut block).unwrap();
-    assert_eq!(99, block[89]);
-    assert_eq!(1, block[3]);
-    block[20] = 0;
-    device.read_block(100, &mut block).unwrap();
-    assert_eq!(121, block[20]);
-    assert_eq!(1, block[2888]);
-    serial_println!("[ok]");
 }
 
