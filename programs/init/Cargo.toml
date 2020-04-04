@@ -1,0 +1,11 @@
+[package]
+name = "init"
+version = "0.1.0"
+authors = ["Jonas Maier <1.jmaier.3@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bstd = { path = "../../std" }
+
