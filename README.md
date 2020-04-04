@@ -1,5 +1,5 @@
 # bitOS
-This is my (currently) non-functioning operating system kernel based on 
+This is an operating system kernel based on 
 [the tutorial by Philipp Oppermann](https://os.phil-opp.com/).
 
 ## Building and running the kernel
@@ -26,9 +26,20 @@ chmod u+x ./setup-build
 # run the build setup script
 ./setup-build
 
-# build the kernel
-cargo xbuild
+# enable execution of the build script
+chmod u+x ./run
 
-# run the kernel
-bootimage run -- -m 1G
+# build and run the kernel
+./run
+
 ```
+
+## Features
+* printing to the vga buffer
+* interrupt handling
+* heap allocation
+* non-persistent FAT-similar file system
+
+## Screenshots
+![vga buffer](https://raw.githubusercontent.com/JM4ier/bitOS/master/meta/screenshot/filesystem.png)
+

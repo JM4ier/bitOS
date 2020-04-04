@@ -1,0 +1,16 @@
+#! /bin/sh
+
+# create the disk.img for the kernel's ramfs
+cargo install --path fsimg
+fsimg --directory base --image disk.img
+
+
+
+cd kernel
+
+# Build the kernel
+cargo xbuild
+
+# Run the kernel
+bootimage run -- -m 1G
+
