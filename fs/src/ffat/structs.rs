@@ -2,11 +2,17 @@ use super::*;
 
 use bytevec::*;
 
-pub struct ReadProgress(pub FileProgress);
+pub struct ReadProgress(pub FileProgress, pub u64);
 pub struct WriteProgress(pub FileProgress);
 
 pub struct FileProgress {
+    /// begin of file that stores the files metadata
+    pub head: u64,
+    
+    /// current sector where data is being read from or written to
     pub sector: u64,
+
+    /// offset from begin of file
     pub byte_offset: u64,
 }
 

@@ -157,14 +157,16 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
 
     fn open_read(&mut self, path: Path) -> FsResult<ReadProgress> {
         self.exists(&path, SectorType::File)?;
-        Ok(ReadProgress(self.open(&path)?))
+        let fileprogress = self.open(&path)?;
+        let size = self.read_sector_meta(fileprogress.head)?.size;
+        Ok(ReadProgress(fileprogress, size))
     }
 
     fn write(&mut self, progress: &mut WriteProgress, buffer: &[u8]) -> FsResult<()> {
         let progress = &mut progress.0;
+        let initial_progress = progress.byte_offset;
 
         let mut buffer_idx = 0;
-
         let mut buf = [0u8; SECTOR_SIZE_U];
 
         while buffer_idx < buffer.len() {
@@ -203,11 +205,19 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
 
             progress.byte_offset += write_bytes as u64;
         }
+
+        // update size of file
+        let bytes_written = progress.byte_offset - initial_progress;
+        let mut meta = self.read_sector_meta(progress.head)?;
+        meta.size += bytes_written;
+        self.write_sector_meta(progress.head, meta)?;
+
         Ok(())
     }
 
     fn read(&mut self, progress: &mut ReadProgress, buffer: &mut [u8]) -> FsResult<u64> {
-        let progress = &mut progress.0;
+        let ReadProgress(progress, file_size) = progress;
+        let file_size = *file_size;
 
         if progress.sector == 0 {
             return Ok(0u64);
@@ -217,11 +227,12 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
 
         let mut buf = [0u8; SECTOR_SIZE_U];
 
-        while buffer_idx < buffer.len() {
+        while buffer_idx < buffer.len() && progress.byte_offset < file_size {
             let bytes_from_sector_start = progress.byte_offset as usize % SECTOR_SIZE_U;
             let bytes_to_sector_end = SECTOR_SIZE_U - bytes_from_sector_start;
             let bytes_to_buffer_end = buffer.len() - buffer_idx;
-            let read_bytes = bytes_to_sector_end.min(bytes_to_buffer_end);
+            let bytes_to_file_end = file_size - progress.byte_offset;
+            let read_bytes = bytes_to_sector_end.min(bytes_to_buffer_end).min(bytes_to_file_end as usize);
 
             self.device.read(progress.sector, &mut buf)?;
             copy_offset(&buf, buffer, read_bytes, bytes_from_sector_start, buffer_idx);
@@ -237,6 +248,7 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
                 } else {
                     // at end of file, return number of read bytes
                     progress.sector = 0;
+                    progress.byte_offset += read_bytes as u64;
                     return Ok(buffer_idx as u64);
                 }
             }
@@ -573,6 +585,7 @@ impl<B: BlockDevice> FFAT<B> {
             SectorType::File => 
                 Ok(FileProgress {
                     byte_offset: 0,
+                    head: addr,
                     sector: addr,
                 }),
             _ => Err(FsError::IllegalOperation(String::from("Can't open a non-file"))),
