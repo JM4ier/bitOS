@@ -42,6 +42,7 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
         if SECTOR_SIZE * fat_sectors < sectors { fat_sectors += 1; } 
         let fat_sectors = fat_sectors;
         let free_sectors = sectors - fat_sectors - 2;
+        let data_begin = fat_sectors + 1; // root sector + the file allocation table
 
         let mut fat_table = Vec::with_capacity(sectors as usize);
 
@@ -64,9 +65,8 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
         });
 
         // push free entries
-        let free_offset = fat_table.len();
         for i in 0..free_sectors {
-            let next = if i == free_sectors - 1 { 0 } else { i+1 };
+            let next = if i == free_sectors - 1 { 0 } else { data_begin+i+2 };
             fat_table.push(Sector {
                 sector_type: SectorType::Free,
                 size: 0,
@@ -75,7 +75,7 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
         }
 
         // pad fat table entries with reserved sectors (which are outside of the device)
-        while fat_table.len() % (SECTOR_SIZE as usize / 32usize) > 0 {
+        while fat_table.len() % (SECTOR_SIZE as usize / fat_entry_size as usize) > 0 {
             fat_table.push(reserved_fat_entry);
         }
 
@@ -91,15 +91,16 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
             name: [b'X'; 64],
             table_begin: 1,
             sectors,
-            root: 1 + fat_sectors,
-            free: 2 + fat_sectors,
+            root: data_begin,
+            free: data_begin+1,
         };
         device.write(0u64, &root_sector)?;
+        
+        let mut fs = Self { device };
 
-        let root = [0u8; SECTOR_SIZE as usize];
-        device.write(root_sector.root, &root)?;
+        fs.write_dir_at_addr(root_sector.root, &Vec::new())?;
 
-        Ok(Self{device})
+        Ok(fs)
     }
 
     fn is_read_only(&self) -> bool {
@@ -117,16 +118,17 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
     }
 
     fn create_dir(&mut self, path: Path) -> FsResult<()> {
+        // create an empty list of directories
+        let dir_entries = DirData::new();
+        let (buffer, size) = raw_dir_data(&dir_entries);
+
         let meta = Sector {
             sector_type: SectorType::Dir,
-            size: SECTOR_SIZE, 
+            size, 
             next: 0,
         };
-        let addr = self.create(&path, meta)?;
 
-        // write an empty list of directory entries to the sector
-        let dir_entries = DirData::new();
-        let buffer = raw_dir_data(&dir_entries);
+        let addr = self.create(&path, meta)?;
         self.device.write(addr, &buffer[0])?;
 
         Ok(())
@@ -261,12 +263,12 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
         let name = if let Some(name) = path.name() {
             name
         } else {
-            return Err(FsError::IllegalOperation);
+            return Err(FsError::IllegalOperation(String::from("Can't delete root")));
         };
         let parent_dir = if let Some(parent_dir) = path.parent_dir() {
             parent_dir
         } else {
-            return Err(FsError::IllegalOperation);
+            return Err(FsError::IllegalOperation(String::from("Can't delete root")));
         };
 
         let parent_addr = self.walk(&parent_dir)?;
@@ -306,7 +308,7 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
             },
             SectorType::Data | 
             SectorType::Free | 
-            SectorType::Reserved => return Err(FsError::IllegalOperation),
+            SectorType::Reserved => return Err(FsError::IllegalOperation(String::from("Can only clear files or directories"))),
         }
 
         Ok(())
@@ -321,7 +323,7 @@ impl<B: BlockDevice> FFAT<B> {
             let table = self.device.get::<_, AllocationTable>(table_addr)?;
             Ok(table.entries[table_idx as usize])
         } else {
-            Err(FsError::IllegalOperation)
+            Err(FsError::IllegalOperation(String::from("read_sector_meta:: Specified sector is not in data section")))
         }
     }
 
@@ -332,7 +334,7 @@ impl<B: BlockDevice> FFAT<B> {
             table.write()?;
             Ok(())
         } else {
-            Err(FsError::IllegalOperation)
+            Err(FsError::IllegalOperation(String::from("write_sector_mega:: Specified sector is not in data section")))
         }
     }
 
@@ -353,7 +355,7 @@ impl<B: BlockDevice> FFAT<B> {
             if let Some(a) = next_addr {
                 self.walk_from(a, &tail)
             } else {
-                Err(FsError::FileNotFound)
+                Err(FsError::NotFound)
             }
         } else {
             Ok(addr)
@@ -369,6 +371,7 @@ impl<B: BlockDevice> FFAT<B> {
     /// gets a free sector and returns it
     fn allocate_sector(&mut self) -> FsResult<u64> {
         let mut root_sector = self.device.get::<_, RootSector>(0u64)?;
+
         let addr = root_sector.free;
         let next = self.next_sector(addr)?;
         if let Some(next) = next {
@@ -418,24 +421,28 @@ impl<B: BlockDevice> FFAT<B> {
     /// reads directory at address
     fn read_dir_at_addr(&mut self, addr: u64) -> FsResult<DirData> {
         let entry = self.read_sector_meta(addr)?;
+
         if entry.sector_type == SectorType::Dir {
             let sectors = (entry.size as usize + SECTOR_SIZE_U - 1) / SECTOR_SIZE_U;
             let mut buffers = vec![[0u8; SECTOR_SIZE_U]; sectors];
+            let size = entry.size;
 
             let mut addr = addr;
             for i in 0..sectors {
                 self.device.read(addr, &mut buffers[i])?;
                 if let Some(a) = self.next_sector(addr)? {
                     addr = a;
-                } else {
-                    return Err(FsError::InternalError);
+                } else if i < sectors-1 {
+                    // if this is not the last sector but the metadata does not point to a next
+                    // sector, this is an error
+                    return Err(FsError::InternalError(String::from("Directory data section ended preemptively")));
                 }
             }
 
-            let dir_data = dir_data_from_raw(&buffers);
+            let dir_data = dir_data_from_raw(&buffers, size);
             Ok(dir_data)
         } else {
-            Err(FsError::IllegalOperation)
+            Err(FsError::IllegalOperation(String::from("Address does not refer to a directory")))
         }
     }
 
@@ -453,8 +460,13 @@ impl<B: BlockDevice> FFAT<B> {
 
     /// writes directory data at specified address
     fn write_dir_at_addr(&mut self, addr: u64, dir_data: &DirData) -> FsResult<()> {
-        let raw_data = raw_dir_data(&dir_data);
+        let (raw_data, size) = raw_dir_data(&dir_data);
         let mut addr = addr;
+
+        let mut meta = self.read_sector_meta(addr)?;
+        meta.size = size;
+        self.write_sector_meta(addr, meta)?;
+
         for raw in raw_data {
             self.device.write(addr, &raw)?;
 
@@ -511,7 +523,7 @@ impl<B: BlockDevice> FFAT<B> {
 
     fn exists(&mut self, path: &Path, sector_type: SectorType) -> FsResult<bool> {
         match self.walk(path) {
-            Err(FsError::FileNotFound) => Ok(false),
+            Err(FsError::NotFound) => Ok(false),
             Ok(addr) => {
                 let meta = self.read_sector_meta(addr)?;
                 Ok(meta.sector_type == sector_type)
@@ -527,12 +539,12 @@ impl<B: BlockDevice> FFAT<B> {
 
             let filename = match path.name() {
                 Some(name) => name,
-                None => return Err(FsError::IllegalOperation),
+                None => return Err(FsError::IllegalOperation(String::from("Can't create root directory"))),
             };
 
             for dir_entry in dir_data.iter() {
                 if dir_entry.1 == filename {
-                    return Err(FsError::IllegalOperation);
+                    return Err(FsError::IllegalOperation(String::from("File or directory with this name already exists")));
                 }
             }
 
@@ -548,7 +560,7 @@ impl<B: BlockDevice> FFAT<B> {
 
             Ok(file_addr)
         } else {
-            Err(FsError::IllegalOperation)
+            Err(FsError::IllegalOperation(String::from("Parent directory does not exist")))
         }
     }
 
@@ -563,7 +575,7 @@ impl<B: BlockDevice> FFAT<B> {
                     byte_offset: 0,
                     sector: addr,
                 }),
-            _ => Err(FsError::IllegalOperation),
+            _ => Err(FsError::IllegalOperation(String::from("Can't open a non-file"))),
         }
     }
 

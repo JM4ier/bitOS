@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-use alloc::{vec, vec::Vec, boxed::Box};
+use alloc::{string::String, vec, vec::Vec, boxed::Box};
 use core::ops::{Deref, DerefMut};
 
 mod copy;
@@ -20,7 +20,7 @@ pub enum FsError {
     BlockDeviceError,
 
     /// file or directory does not exist
-    FileNotFound,
+    NotFound,
 
     /// no permission to access path
     AccessViolation,
@@ -35,10 +35,10 @@ pub enum FsError {
     NotEnoughSpace,
 
     /// Some kind of error that is caused by bad programming of the file system
-    InternalError,
+    InternalError(String),
 
     /// Something that shouldn't be done
-    IllegalOperation,
+    IllegalOperation(String),
 }
 
 /// Result type for file system operations

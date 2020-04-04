@@ -57,7 +57,7 @@ impl Default for AllocationTable {
     }
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 #[repr(align(32))]
 pub struct Sector {
     pub sector_type: SectorType,
@@ -65,7 +65,7 @@ pub struct Sector {
     pub next: u64, 
 }
 
-#[derive(Eq, PartialEq, Copy, Clone)]
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
 #[repr(C)]
 pub enum SectorType {
     /// Unused sector
@@ -89,7 +89,7 @@ impl Default for SectorType {
 pub type DirEntry = (u64, Filename);
 pub type DirData = Vec<DirEntry>;
 
-pub fn raw_dir_data(data: &DirData) -> Vec<[u8; SECTOR_SIZE_U]> {
+pub fn raw_dir_data(data: &DirData) -> (Vec<[u8; SECTOR_SIZE_U]>, u64) {
     let bytes = data.encode::<u64>().unwrap();
     let sectors = (bytes.len() + SECTOR_SIZE_U - 1) / SECTOR_SIZE_U;
     let mut raw = Vec::with_capacity(sectors as usize);
@@ -102,15 +102,13 @@ pub fn raw_dir_data(data: &DirData) -> Vec<[u8; SECTOR_SIZE_U]> {
         bytes_processed += bytes_to_copy;
         raw.push(sector);
     }
-    raw
+    (raw, bytes.len() as u64)
 }
 
-pub fn dir_data_from_raw(raw: &Vec<[u8; SECTOR_SIZE_U]>) -> DirData {
-    let byte_len = raw.len() as u64 * SECTOR_SIZE;
+pub fn dir_data_from_raw(raw: &Vec<[u8; SECTOR_SIZE_U]>, size: u64) -> DirData {
+    let size = size as usize;
     let raw: Vec<u8> = raw.iter().flat_map(|sector| sector.iter()).map(|v| *v).collect();
-    let data = DirData::decode_max::<u64>(&raw, byte_len).unwrap();
+    let data = DirData::decode::<u64>(&raw[..size]).unwrap();
     data
 }
-
-
 

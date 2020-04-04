@@ -35,3 +35,7 @@ tags
 
 # End of https://www.gitignore.io/api/vim,rust
 
+
+## Project specific ignores
+base.img
+
