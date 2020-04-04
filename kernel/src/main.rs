@@ -17,6 +17,8 @@ lazy_static! {
     static ref VGA_COLOR: ColorCode = ColorCode::new(Color::White, Color::Black);
 }
 
+static DISK_IMAGE: &'static [u8] = include_bytes!("../../disk.img");
+
 entry_point!(kernel_main);
 pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     set_color(*VGA_COLOR);
@@ -35,7 +37,7 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
         allocator::init_mem(&mut mapper, &mut frame_allocator)
             .expect("Heap initialization failed");
     }, "memory");
-    //load_feature(|| {fs::test_fs();}, "file system");
+    load_feature(init_fs, "file system");
 
     kernel_start_message();
 
@@ -68,7 +70,7 @@ fn load_feature(func: impl Fn(), text: &'static str) {
     }
     func();
     set_color(ColorCode::new(Color::Green, Color::Black));
-    println!("[ok]");
+    println!("{} [ok]", text);
     set_color(*VGA_COLOR);
 }
 
@@ -92,6 +94,23 @@ fn _demonstrate_heap() {
 
     println!("No crash!");
 }
+
+use fs::*;
+use fs::ffat::*;
+fn init_fs() {
+    let rom_disk = RomDisk::new(DISK_IMAGE);
+    let mut ffat = FFAT::mount(rom_disk).unwrap();
+
+    // print a nice message
+    let mut buffer = [0u8; 4096];
+    let mut handle = ffat.open_read(Path::from_str::<FFAT<RomDisk>, RomDisk>("/home/anon/message").unwrap()).unwrap();
+    let bytes_read = ffat.read(&mut handle, &mut buffer).unwrap();
+    println!("read {} bytes", bytes_read);
+    for &ch in buffer[..bytes_read as usize].iter() {
+        print!("{}", ch as char);
+    }
+}
+
 
 #[allow(dead_code)]
 struct Link {
