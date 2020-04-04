@@ -239,7 +239,7 @@ impl Path {
             Some(self.path[self.path.len() - 1][..].to_vec())
         }
     }
-    pub fn from_str<B: BlockDevice, T: FileSystem<B>>(string: &str) -> Option<Path> {
+    pub fn from_str<T: FileSystem<B>, B: BlockDevice>(string: &str) -> Option<Path> {
         let string = string.as_bytes();
         let mut path: Vec<Vec<u8>> = Vec::new();
         let mut token = Vec::new();
