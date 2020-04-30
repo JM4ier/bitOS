@@ -36,9 +36,11 @@ fn main() {
     let ram_disk = bit_fs::RamDisk::new(&mut blocks);
     let mut fat = bit_fs::ffat::FFAT::format(ram_disk).unwrap();
 
-    create_image(&mut fat, path, bit_fs::Path::from_str::<bit_fs::ffat::FFAT<bit_fs::RamDisk>, bit_fs::RamDisk>("/").unwrap());
+    create_image(&mut fat, path, bit_fs::Path::from_str("/").unwrap());
 
     let mut image_file = std_fs::File::create(binary).unwrap();
+
+    drop(fat);
 
     // write fs to image file
     for block in blocks {
@@ -50,8 +52,8 @@ fn main() {
     }
 }
 
-fn create_image<B, FS>(disk: &mut FS, path: &std_path::Path, disk_path: bit_fs::Path)
-where B: bit_fs::BlockDevice, FS: bit_fs::FileSystem<B> {
+fn create_image<'a, FS>(disk: &mut FS, path: &std_path::Path, disk_path: bit_fs::Path)
+where FS: bit_fs::FileSystem<'a> {
     if !disk_path.is_root() {
         // write fs entry
         if path.is_dir() {

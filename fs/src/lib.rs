@@ -3,7 +3,7 @@
 
 extern crate alloc;
 
-use alloc::{string::String, vec, vec::Vec, boxed::Box};
+use alloc::{string::{String, ToString}, vec, vec::Vec, boxed::Box};
 use core::ops::{Deref, DerefMut};
 
 mod copy;
@@ -94,7 +94,7 @@ impl<D: BlockDevice> BlockDeviceArgumentChecks for D {
     }
 }
 
-impl<I: Into<u64> + Sized, T: Sized, B: BlockDevice> SerdeBlockDevice<I, T> for B {
+impl<'b, I: Into<u64> + Sized, T: Sized, B: 'b + BlockDevice> SerdeBlockDevice<I, T> for B {
     fn read(&mut self, index: I, obj: &mut T) -> FsResult<()> {
         self.read_block(index.into(), obj.as_u8_slice_mut())
     }
@@ -104,7 +104,7 @@ impl<I: Into<u64> + Sized, T: Sized, B: BlockDevice> SerdeBlockDevice<I, T> for 
     }
 }
 
-impl<I: Into<u64> + Sized, T: Sized> SerdeBlockDevice<I, T> for Box<dyn BlockDevice> {
+impl<'b, I: Into<u64> + Sized, T: Sized> SerdeBlockDevice<I, T> for Box<dyn 'b + BlockDevice> {
     fn read(&mut self, index: I, obj: &mut T) -> FsResult<()> {
         self.read_block(index.into(), obj.as_u8_slice_mut())
     }
@@ -114,43 +114,43 @@ impl<I: Into<u64> + Sized, T: Sized> SerdeBlockDevice<I, T> for Box<dyn BlockDev
     }
 }
 
-pub trait StructBlockDevice<B: BlockDevice> {
+pub trait StructBlockDevice<D: BlockDevice, B: Deref<Target=D> + DerefMut<Target=D>> {
     fn get<I: Into<u64> + Sized, T: Sized + Default>(&mut self, index: I) -> FsResult<T>;
-    fn get_mut<I: Into<u64> + Sized + Copy, T: Sized + Default>(&mut self, index: I) -> FsResult<EditableBlock<'_, T, B, I>>;
+    fn get_mut<I: Into<u64> + Sized + Copy, T: Sized + Default>(&mut self, index: I) -> FsResult<EditableBlock<'_, T, D, I, B>>;
 }
 
-pub struct EditableBlock<'d, T: Sized, D: BlockDevice, I: Into<u64> + Sized> {
+pub struct EditableBlock<'d, T: Sized, D: BlockDevice, I: Into<u64> + Sized, B: Deref<Target=D> + DerefMut<Target=D>> {
     idx: I,
     data: T,
-    device: &'d mut D,
+    device: &'d mut B,
 }
 
-impl<'d, T: Sized, D: BlockDevice, I: Into<u64> + Sized> EditableBlock<'d, T, D, I> {
+impl<'d, T: Sized, D: BlockDevice, I: Into<u64> + Sized, B: Deref<Target=D> + DerefMut<Target=D>> EditableBlock<'d, T, D, I, B> {
     pub fn write(self) -> FsResult<()> {
         self.device.write(self.idx, &self.data)
     }
 }
 
-impl<'d, T: Sized, D: BlockDevice, I: Into<u64> + Sized> Deref for EditableBlock<'d, T, D, I> {
+impl<'d, T: Sized, D: BlockDevice, I: Into<u64> + Sized, B: Deref<Target=D> + DerefMut<Target=D>> Deref for EditableBlock<'d, T, D, I, B> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.data
     }
 }
 
-impl<'d, T: Sized, D: BlockDevice, I: Into<u64> + Sized> DerefMut for EditableBlock<'d, T, D, I> {
+impl<'d, T: Sized, D: BlockDevice, I: Into<u64> + Sized, B: Deref<Target=D> + DerefMut<Target=D>> DerefMut for EditableBlock<'d, T, D, I, B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data
     }
 }
 
-impl<B: BlockDevice> StructBlockDevice<B> for B {
+impl<D: BlockDevice, B: Deref<Target=D> + DerefMut<Target=D>> StructBlockDevice<D, B> for B {
     fn get<I: Into<u64> + Sized, T: Sized + Default>(&mut self, idx: I) -> FsResult<T> {
         let mut data = T::default();
         self.read(idx, &mut data)?;
         Ok(data)
     }
-    fn get_mut<I: Into<u64> + Sized + Copy, T: Sized + Default>(&mut self, idx: I) -> FsResult<EditableBlock<'_, T, B, I>> {
+    fn get_mut<I: Into<u64> + Sized + Copy, T: Sized + Default>(&mut self, idx: I) -> FsResult<EditableBlock<'_, T, D, I, B>> {
         let mut data = T::default();
         self.read(idx, &mut data)?;
         Ok( EditableBlock {
@@ -308,7 +308,7 @@ impl Path {
             Some(self.path[self.path.len() - 1][..].to_vec())
         }
     }
-    pub fn from_str<T: FileSystem<B>, B: BlockDevice>(string: &str) -> Option<Path> {
+    pub fn from_str(string: &str) -> Option<Path> {
         let string = string.as_bytes();
         let mut path: Vec<Vec<u8>> = Vec::new();
         let mut token = Vec::new();
@@ -318,10 +318,8 @@ impl Path {
                     path.push(token);
                     token = Vec::new();
                 }
-            } else if T::allowed_chars().contains(&ch) {
-                token.push(ch);
             } else {
-                return None;
+                token.push(ch);
             }
         }
         if !token.is_empty() {
@@ -347,7 +345,7 @@ impl Path {
     }
 }
 
-pub trait FileSystem<B: BlockDevice> : Sized  {
+pub trait FileSystem<'b> : Sized  {
     /// a handle to a file opened read-only to store read progress
     type ReadProgress;
 
@@ -358,10 +356,10 @@ pub trait FileSystem<B: BlockDevice> : Sized  {
     fn allowed_chars() -> &'static [u8];
 
     /// creates a new file system using the `block_device` or fails if the root block is not valid
-    fn mount(block_device: B) -> FsResult<Self>;
+    fn mount<B: 'b + BlockDevice>(block_device: B) -> FsResult<Self>;
     
     /// Formats the given device and returns the fs
-    fn format(block_device: B) -> FsResult<Self>;
+    fn format<B: 'b + BlockDevice>(block_device: B) -> FsResult<Self>;
 
     /// Returns `true` if the file system if read-only
     fn is_read_only(&self) -> bool;

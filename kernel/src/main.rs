@@ -1,22 +1,21 @@
 #![no_std]
 #![no_main]
 #![feature(custom_test_frameworks)]
+#![feature(global_asm)]
 #![test_runner(bit_os::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
 use core::panic::PanicInfo;
-use bit_os::{print, println, memory, vga_buffer, vga_buffer::*, fs, files};
+use bit_os::{print, println, memory, vga_buffer, vga_buffer::*, files, elf};
 use bootloader::{BootInfo, entry_point};
-use x86_64::{VirtAddr};
 use lazy_static::*;
 
 extern crate alloc;
-use bit_os::allocator;
+use alloc::string::String;
 
 lazy_static! {
     static ref VGA_COLOR: ColorCode = ColorCode::new(Color::White, Color::Black);
 }
-
 
 entry_point!(kernel_main);
 pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
@@ -28,24 +27,36 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
     load_feature(|| {bit_os::init();}, "interrupts");
     load_feature(|| {
         // initializing kernel heap
-        let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
-        let mut mapper = unsafe { memory::init(phys_mem_offset) };
-        let mut frame_allocator = unsafe{
-            memory::BootInfoFrameAllocator::init(&boot_info.memory_map)
-        };
-        allocator::init_mem(&mut mapper, &mut frame_allocator)
-            .expect("Heap initialization failed");
-    }, "memory");
+        memory::init_boot_info(boot_info);
+        memory::init_allocator();
+        memory::heap::init_heap().expect("Heap initialization failed");
+    }, "kernel heap");
     load_feature(files::init, "file system");
 
     kernel_start_message();
 
     files::message();
 
+    do_wacky_init_load();
+
     #[cfg(test)]
     test_main();
 
     bit_os::hlt_loop()
+}
+
+global_asm!(include_str!("asm.s"));
+extern "C" {
+    pub fn jump(_rdi: u64);
+}
+
+use bit_os::serial_println;
+fn do_wacky_init_load() {
+    memory::print_virt_memory_map();
+    let init = elf::load_elf(String::from("/bin/init")).unwrap();
+    serial_println!("entry point to elf: {:#x}", init);
+    memory::print_virt_memory_map();
+    unsafe { jump(init); }
 }
 
 fn kernel_start_message() {

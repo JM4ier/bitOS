@@ -7,14 +7,14 @@ pub const SECTOR_SIZE: u64 = 4096;
 pub const SECTOR_SIZE_U: usize = SECTOR_SIZE as usize;
 const FAT_ENTRIES_PER_SECTOR: u64 = SECTOR_SIZE / 32;
 
-pub struct FFAT<B: BlockDevice> {
-    device: B,
+pub struct FFAT<'b> {
+    device: Box<dyn 'b + BlockDevice>,
 }
 
 const ALLOWED_CHARS: &'static [u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-.";
 
 
-impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
+impl<'b> FileSystem<'b> for FFAT<'b> {
     type ReadProgress = ReadProgress;
     type WriteProgress = WriteProgress;
 
@@ -22,11 +22,13 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
         ALLOWED_CHARS
     }
 
-    fn mount(device: B) -> FsResult<Self> {
-        Ok(Self{device})
+    fn mount<B: 'b + BlockDevice>(device: B) -> FsResult<Self> {
+        Ok(Self{
+            device: Box::new(device),
+        })
     }
 
-    fn format(device: B) -> FsResult<Self> {
+    fn format<B: 'b + BlockDevice>(device: B) -> FsResult<Self> {
         assert!(!device.is_read_only());
         assert!(device.blocksize() == SECTOR_SIZE);        
         assert!(device.blocks() >= 8);
@@ -81,9 +83,9 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
 
         // write the fat table to the device
         for i in 0..fat_sectors {
-            let mut table = device.get_mut::<_, AllocationTable>(1 + i as u64)?;
+            let mut table = AllocationTable::default();
             copy_offset(&fat_table, &mut table.entries, fat_entries_per_sector as usize, (i * fat_entries_per_sector) as usize, 0);
-            table.write()?;
+            device.write(1 + i, &table)?;
         }
 
         // write the root sector to the device
@@ -96,7 +98,9 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
         };
         device.write(0u64, &root_sector)?;
         
-        let mut fs = Self { device };
+        let mut fs = Self { 
+            device: Box::new(device),
+        };
 
         fs.write_dir_at_addr(root_sector.root, &Vec::new())?;
 
@@ -328,11 +332,11 @@ impl<B: BlockDevice> FileSystem<B> for FFAT<B> {
 
 }
 
-impl<B: BlockDevice> FFAT<B> {
-
+impl<'b> FFAT<'b> {
     fn read_sector_meta(&mut self, addr: u64) -> FsResult<Sector> {
         if let Some((table_addr, table_idx)) = self.sector_to_table_location(addr) {
-            let table = self.device.get::<_, AllocationTable>(table_addr)?;
+            let mut table = AllocationTable::default();
+            self.device.read(table_addr, &mut table)?;
             Ok(table.entries[table_idx as usize])
         } else {
             Err(FsError::IllegalOperation(String::from("read_sector_meta:: Specified sector is not in data section")))
@@ -341,9 +345,10 @@ impl<B: BlockDevice> FFAT<B> {
 
     fn write_sector_meta(&mut self, addr: u64, meta: Sector) -> FsResult<()> {
         if let Some((table_addr, table_idx)) = self.sector_to_table_location(addr) {
-            let mut table = self.device.get_mut::<_, AllocationTable>(table_addr)?;
+            let mut table = AllocationTable::default();
+            self.device.read(table_addr, &mut table)?;
             table.entries[table_idx as usize] = meta;
-            table.write()?;
+            self.device.write(table_addr, &table)?;
             Ok(())
         } else {
             Err(FsError::IllegalOperation(String::from("write_sector_mega:: Specified sector is not in data section")))
@@ -382,7 +387,8 @@ impl<B: BlockDevice> FFAT<B> {
 
     /// gets a free sector and returns it
     fn allocate_sector(&mut self) -> FsResult<u64> {
-        let mut root_sector = self.device.get::<_, RootSector>(0u64)?;
+        let mut root_sector = RootSector::default();
+        self.device.read(0u64, &mut root_sector)?;
 
         let addr = root_sector.free;
         let next = self.next_sector(addr)?;

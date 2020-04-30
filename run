@@ -1,40 +1,21 @@
-#! /bin/sh
-
-fail() {
-	echo Error: $1
-	exit
-}
+#! /bin/bash
 
 # change directory to script location
 cd "$(dirname "$0")"
 
 # some vars
 project="$(pwd)"
-bin=$project/base/bin
 target_name="x86_64-bit_os"
 target=$project/$target_name.json
 
-# Compile all programs
-programs="$(ls ./programs)"
-echo "Compiling $(ls ./programs | wc -l) userspace programs"
-mkdir -p $project/base/bin
-for program in $programs ; do
-	cd $project/programs/$program
-	echo "  - $program"
-	cargo xbuild --target $target || fail "failed to compile $program"
-	cp ./target/$target_name/debug/$program $bin || fail "failed to copy $program to base"
-done
-
-# create the disk.img for the kernel's ramfs
-cd $project
-cargo install --path fsimg || fail "failed to build/install fsimg"
-fsimg --directory base --image disk.img || fail "failed to create disk image"
-
-
-# Build the kernel
-cd $project/kernel
-cargo xbuild --target $target || fail "failed to build kernel"
+# Build everyhing
+./build
+if [ $? -ne 0 ]; then
+	echo "failed build"
+	exit
+fi
 
 # Run the kernel
-bootimage run --target $target -- -m 1G || fail "failed to run kernel"
+cd $project/kernel
+bootimage run --target $target -- -m 1G -serial stdio || echo "failed to run kernel"
 
