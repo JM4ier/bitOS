@@ -10,8 +10,7 @@ syscall_handler:
     push r15
 
     mov r15, rsp
-    mov r14, 0xbadc0ffee	# FIXME userspace syscall handler stack
-    mov rsp, QWORD PTR [r14]
+    mov rsp, 0x7000000fffff # KERNEL_SYSCALL_STACK_TOP
     push r15
     call __syscall
     pop r15

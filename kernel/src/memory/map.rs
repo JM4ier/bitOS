@@ -1,9 +1,7 @@
-use spin::{Mutex, MutexGuard};
 use x86_64::structures::paging::{*, mapper::*};
-use x86_64::{PhysAddr, VirtAddr};
+use x86_64::VirtAddr;
 
 pub fn map(virt_addr: u64, flags: PageTableFlags) -> Result<u64, MapToError> {
-    let table = unsafe { super::active_level_4_table() };
     let page = Page::<Size4KiB>::containing_address(VirtAddr::new(virt_addr));
     let frame = super::allocator().allocate_frame().expect("out of memory");
     unsafe {

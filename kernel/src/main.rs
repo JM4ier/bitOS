@@ -6,7 +6,8 @@
 #![reexport_test_harness_main = "test_main"]
 
 use core::panic::PanicInfo;
-use bit_os::{print, println, memory, vga_buffer, vga_buffer::*, files, elf};
+use dep::consts::*;
+use bit_os::{print, println, serial_println, memory, vga_buffer, vga_buffer::*, files, elf, syscall, process::{self, *}};
 use bootloader::{BootInfo, entry_point};
 use lazy_static::*;
 
@@ -32,12 +33,21 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
         memory::heap::init_heap().expect("Heap initialization failed");
     }, "kernel heap");
     load_feature(files::init, "file system");
+    load_feature(syscall::init_syscall_stack, "syscall stack");
+    load_feature(process::init, "processes");
 
     kernel_start_message();
 
     files::message();
 
-    do_wacky_init_load();
+    unsafe {
+        serial_println!("kernel syscall stack top at {:#x}", KERNEL_SYSCALL_STACK_TOP);
+        serial_println!("memmap before process");
+        memory::print_virt_memory_map();
+        let init = Process::create(String::from("/bin/init"));
+        serial_println!("memmap after process");
+        memory::print_virt_memory_map();
+    }
 
     #[cfg(test)]
     test_main();
@@ -50,14 +60,6 @@ extern "C" {
     pub fn jump(_rdi: u64);
 }
 
-use bit_os::serial_println;
-fn do_wacky_init_load() {
-    memory::print_virt_memory_map();
-    let init = elf::load_elf(String::from("/bin/init")).unwrap();
-    serial_println!("entry point to elf: {:#x}", init);
-    memory::print_virt_memory_map();
-    unsafe { jump(init); }
-}
 
 fn kernel_start_message() {
     let msg =

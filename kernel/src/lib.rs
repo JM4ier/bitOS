@@ -4,13 +4,14 @@
 #![feature(alloc_error_handler)]
 #![feature(abi_x86_interrupt)]
 #![feature(ptr_internals)]
-#![feature(global_asm)]
+#![feature(global_asm, llvm_asm)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
 // linting
 #![forbid(unused_must_use)]
 #![allow(dead_code)]
+//#![allow(unused_imports)]
 
 extern crate alloc;
 pub extern crate fs;
@@ -25,6 +26,7 @@ pub mod memory;
 pub mod files;
 pub mod syscall;
 pub mod elf;
+pub mod process;
 
 
 #[cfg(test)]

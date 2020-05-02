@@ -1,10 +1,14 @@
 #![feature(asm, global_asm, naked_functions, alloc_error_handler)]
 #![no_std]
 
+extern crate alloc;
+
 use core::panic::PanicInfo;
 use core::alloc::Layout;
 
 pub mod syscall;
+pub mod kprint;
+mod allocator;
 //pub mod fs;
 
 #[no_mangle]

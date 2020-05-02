@@ -9,6 +9,8 @@ use x86_64::{
 use spin::{Mutex, MutexGuard, Once};
 use bootloader::BootInfo;
 
+use dep::consts::*;
+
 pub mod heap;
 mod allocator;
 mod map;
@@ -18,6 +20,7 @@ pub use map::*;
 
 static mut BOOT_INFO: Once<&'static BootInfo> = Once::new();
 static mut ALLOCATOR: Once<Mutex<BootInfoFrameAllocator>> = Once::new();
+
 
 pub fn init_boot_info(boot_info: &'static BootInfo) {
     unsafe {
@@ -62,8 +65,9 @@ unsafe fn active_level_4_table() -> &'static mut PageTable {
     &mut *page_table_ptr
 }
 
-unsafe fn new_table(id: u64) -> u64 {
-    let page_addr = 0; // FIXME virt_addr dependent  on id
+/// creates a new memory mapping for a userspace process with `pid`
+pub unsafe fn new_table(pid: u64) -> u64 {
+    let page_addr = KERNEL_PAGETABLES_START + pid * PAGE_SIZE;
     let frame = map(page_addr, PageTableFlags::PRESENT | PageTableFlags::WRITABLE).unwrap();
 
     let new_p4 = &mut *(page_addr as *mut PageTable);
@@ -74,12 +78,21 @@ unsafe fn new_table(id: u64) -> u64 {
         new_p4[i] = PageTableEntry::new();
     }
 
-    // copy higher half of memory mapping (kernel space)
-    for i in 256..512 {
+    // copy lower half of memory mapping (kernel space)
+    for i in 0..256 {
         new_p4[i] = current_p4[i].clone();
     }
 
     frame
+}
+
+/// loads new level 4 page table by modifying the Cr3 register
+/// Returns the physical address of the old level 4 page table
+pub unsafe fn load_table(new_paddr: u64) -> u64 {
+    let old_paddr;
+    llvm_asm!("mov $0, cr3":"=r"(old_paddr):::"intel", "volatile");
+    llvm_asm!("mov cr3, $0"::"r"(new_paddr)::"intel", "volatile");
+    old_paddr
 }
 
 fn phys_to_virt(phys: PhysAddr) -> VirtAddr {
@@ -88,11 +101,13 @@ fn phys_to_virt(phys: PhysAddr) -> VirtAddr {
 }
 
 use crate::serial_println;
+/// prints map of physical memory used
 pub fn print_memory_map() {
     let memory_map = allocator().memory_map;
     serial_println!("{:?}", memory_map);
 }
 
+/// prints map of virtual memory used
 pub fn print_virt_memory_map() {
     let p4 = unsafe { active_level_4_table() };
     let mut last_region = None;

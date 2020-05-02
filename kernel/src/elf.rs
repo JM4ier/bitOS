@@ -1,9 +1,9 @@
 use core::ptr;
 use alloc::{string::String, vec::Vec};
 use x86_64::structures::paging::PageTableFlags;
-use xmas_elf::{*, header::*, program::*};
+use xmas_elf::{*, program::*};
 use fs::*;
-use crate::{files, memory, serial_println};
+use crate::{files, memory};
 
 /// loads elf specified by path to memory and returns the entry point of the executable
 pub fn load_elf(path: String) -> Result<u64, &'static str> {

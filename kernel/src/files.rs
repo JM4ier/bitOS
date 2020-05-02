@@ -1,7 +1,6 @@
 use alloc::{vec, vec::Vec};
-use lazy_static::lazy_static;
-use spin::{Once, Mutex, MutexGuard};
-use crate::{print, serial_println, fs::{*, ffat::*}};
+use spin::{Once, Mutex};
+use crate::{print, fs::{*, ffat::*}};
 use core::ops::DerefMut;
 use fs::FsResult;
 
