@@ -38,8 +38,6 @@ pub fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     kernel_start_message();
 
-    files::message();
-
     unsafe {
         serial_println!("kernel syscall stack top at {:#x}", KERNEL_SYSCALL_STACK_TOP);
         serial_println!("memmap before process");

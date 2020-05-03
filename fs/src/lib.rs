@@ -5,13 +5,12 @@ extern crate alloc;
 
 use alloc::{string::{String, ToString}, vec, vec::Vec, boxed::Box};
 use core::ops::{Deref, DerefMut};
+pub use dep::fs::*;
 
 mod copy;
 pub use copy::*;
 
 pub mod ffat;
-
-pub const SEPARATOR: u8 = b'/';
 
 /// Error type for file system errors
 #[derive(Debug)]
@@ -281,69 +280,6 @@ impl BlockDevice for OwnedDisk {
     }
 }
 
-/// simple struct that stores a file path without the separators
-#[derive(Clone)]
-pub struct Path {
-    path: Vec<Vec<u8>>,
-}
-
-/// entry of a directory, a file or directory name
-pub type Filename = Vec<u8>;
-
-impl Path {
-    pub fn is_root(&self) -> bool {
-        self.path.len() == 0
-    }
-    pub fn parent_dir(&self) -> Option<Path> {
-        if self.is_root() {
-            None
-        } else {
-            Some(Self{ path: self.path[..self.path.len()-1].to_vec() })
-        }
-    }
-    pub fn name(&self) -> Option<Vec<u8>> {
-        if self.is_root() {
-            None
-        } else {
-            Some(self.path[self.path.len() - 1][..].to_vec())
-        }
-    }
-    pub fn from_str(string: &str) -> Option<Path> {
-        let string = string.as_bytes();
-        let mut path: Vec<Vec<u8>> = Vec::new();
-        let mut token = Vec::new();
-        for &ch in string {
-            if ch == SEPARATOR {
-                if !token.is_empty() {
-                    path.push(token);
-                    token = Vec::new();
-                }
-            } else {
-                token.push(ch);
-            }
-        }
-        if !token.is_empty() {
-            path.push(token);
-        }
-        Some(Self{path})
-    }
-    pub fn head_tail(mut self) -> (Option<Filename>, Self) {
-        if self.is_root() {
-            (None, self)
-        } else {
-            let tail = self.path.split_off(1);
-            let head = self.path[0].clone();
-            (Some(head), Self{path: tail})
-        }
-    }
-    pub fn concat(&self, child: Filename) -> Path {
-        let mut child_path = self.path.clone();
-        child_path.push(child);
-        Path {
-            path: child_path,
-        }
-    }
-}
 
 pub trait FileSystem<'b> : Sized  {
     /// a handle to a file opened read-only to store read progress

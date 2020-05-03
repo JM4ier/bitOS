@@ -8,8 +8,8 @@ use core::alloc::Layout;
 
 pub mod syscall;
 pub mod kprint;
+pub mod fs;
 mod allocator;
-//pub mod fs;
 
 #[no_mangle]
 #[panic_handler]

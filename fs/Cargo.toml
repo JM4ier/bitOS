@@ -8,4 +8,5 @@ edition = "2018"
 
 [dependencies]
 bytevec = { git = "https://github.com/JM4ier/bytevec" }
+dep = { path = "../dep" }
 

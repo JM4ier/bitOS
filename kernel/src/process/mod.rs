@@ -42,10 +42,23 @@ pub struct Registers {
     cr3: u64,
 }
 
+pub struct FileDescriptors {
+    next_fd: i64,
+}
+
+impl FileDescriptors {
+    fn new() -> Self { 
+        Self {
+            next_fd: 0,
+        } 
+    }
+}
+
 pub struct Process {
     pub id: u64,
     pub name: Vec<u8>,
     pub regs: Registers,
+    pub files: FileDescriptors,
 }
 
 impl Process {
@@ -58,6 +71,7 @@ impl Process {
                 rsp: USER_STACK_TOP,
                 cr3: memory::new_table(id),
             },
+            files: FileDescriptors::new(),
         };
 
         let old_table = memory::load_table(proc.regs.cr3);
