@@ -22,8 +22,7 @@ Cargo.lock
 [._]sw[a-p]
 
 # Session
-Session.vim
-Sessionx.vim
+*.vim
 
 # Temporary
 .netrwhist
@@ -39,3 +38,4 @@ tags
 ## Project specific ignores
 disk.img
 base/bin
+
