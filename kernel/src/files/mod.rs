@@ -10,7 +10,7 @@ use core::marker::*;
 use fs::*;
 
 
-static DISK_IMAGE: &'static [u8] = include_bytes!("../../disk.img");
+static DISK_IMAGE: &'static [u8] = include_bytes!("../../../disk.img");
 
 static mut FS: Once<Mutex<RootFileSystem>> = Once::new();
 
