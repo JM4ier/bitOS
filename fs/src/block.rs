@@ -35,3 +35,33 @@ pub fn check_args<D: BlockDevice<BS>, const BS: usize>(device: &D, buffer: &[u8]
     }
 }
 
+/// Quality-of-life trait that trasmutes any `T` to a byte buffer and reads a block
+pub trait TransmutingReadBlockDevice<const BS: usize> {
+    fn read<T>(&self, index: usize, buffer: &mut T) -> FsResult<()>;
+}
+
+/// Quality-of-life trait that trasmutes any `T` to a byte buffer and writes a block
+pub trait TransmutingWriteBlockDevice<const BS: usize> {
+    fn write<T>(&mut self, index: usize, buffer: &T) -> FsResult<()>;
+}
+
+impl<D: ReadBlockDevice<BS>, const BS: usize> TransmutingReadBlockDevice<BS> for D {
+    fn read<T>(&self, index: usize, buffer: &mut T) -> FsResult<()> {
+        let size = core::mem::size_of::<T>();
+        let buffer = unsafe {
+            &mut *core::ptr::slice_from_raw_parts_mut((buffer as *mut T) as *mut u8, size)
+        };
+        self.read_block(index, buffer)
+    }
+}
+
+impl<D: WriteBlockDevice<BS>, const BS: usize> TransmutingWriteBlockDevice<BS> for D {
+    fn write<T>(&mut self, index: usize, buffer: &T) -> FsResult<()> {
+        let size = core::mem::size_of::<T>();
+        let buffer = unsafe {
+            &*core::ptr::slice_from_raw_parts((buffer as *const T) as *const u8, size)
+        };
+        self.write_block(index, buffer)
+    }
+}
+
