@@ -1,7 +1,3 @@
-#![no_std]
-#![feature(const_generics)]
-#![feature(custom_test_frameworks)]
-
 extern crate alloc;
 use alloc::string::String;
 

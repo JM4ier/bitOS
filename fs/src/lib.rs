@@ -7,6 +7,7 @@ pub mod copy;
 pub mod block;
 pub mod memory_devices;
 pub mod filesystem;
+pub mod ffat;
 
 /// Blanket trait that is implemented for every `Sized` type.
 /// It allows for an easy conversion from a fixed size type to a slice of `u8`.

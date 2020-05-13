@@ -1,5 +1,3 @@
-#![feature(const_generics)]
-
 extern crate alloc;
 use alloc::string::*;
 use crate::error::*;

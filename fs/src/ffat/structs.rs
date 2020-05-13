@@ -2,24 +2,24 @@ use super::*;
 
 use bytevec::*;
 
-pub struct ReadProgress(pub FileProgress, pub u64);
+pub struct ReadProgress(pub FileProgress, pub usize);
 pub struct WriteProgress(pub FileProgress);
 
 pub struct FileProgress {
     /// begin of file that stores the files metadata
-    pub head: u64,
+    pub head: usize,
     
     /// current sector where data is being read from or written to
-    pub sector: u64,
+    pub sector: usize,
 
     /// offset from begin of file
-    pub byte_offset: u64,
+    pub byte_offset: usize,
 }
 
 impl FileProgress {
     /// Bytes that have already been read/written in the current sector
     pub fn current_bytes_processed(&self) -> usize {
-        (self.byte_offset % SECTOR_SIZE) as usize
+        (self.byte_offset % BLOCK_SIZE) as usize
     }
 }
 
@@ -27,10 +27,10 @@ impl FileProgress {
 #[repr(align(4096))]
 pub struct RootSector {
     pub name: [u8; 64],
-    pub table_begin: u64,
-    pub sectors: u64,
-    pub root: u64,
-    pub free: u64,
+    pub table_begin: usize,
+    pub sectors: usize,
+    pub root: usize,
+    pub free: usize,
 }
 
 impl Default for RootSector {
@@ -48,7 +48,7 @@ impl Default for RootSector {
 #[derive(Copy, Clone)]
 #[repr(align(4096))]
 pub struct AllocationTable {
-    pub entries: [Sector; SECTOR_SIZE_U / 32],    
+    pub entries: [Sector; BLOCK_SIZE / 32],    
 }
 
 impl Default for AllocationTable {
@@ -58,7 +58,7 @@ impl Default for AllocationTable {
                 sector_type: SectorType::Reserved,
                 size: 0,
                 next: 0,
-            }; SECTOR_SIZE_U / 32] 
+            }; BLOCK_SIZE / 32] 
         }
     }
 }
@@ -67,8 +67,8 @@ impl Default for AllocationTable {
 #[repr(align(32))]
 pub struct Sector {
     pub sector_type: SectorType,
-    pub size: u64,
-    pub next: u64, 
+    pub size: usize,
+    pub next: usize, 
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
@@ -92,26 +92,26 @@ impl Default for SectorType {
     }
 }
 
-pub type DirEntry = (u64, Filename);
+pub type DirEntry = (usize, Filename);
 pub type DirData = Vec<DirEntry>;
 
-pub fn raw_dir_data(data: &DirData) -> (Vec<[u8; SECTOR_SIZE_U]>, u64) {
+pub fn raw_dir_data(data: &DirData) -> (Vec<[u8; BLOCK_SIZE]>, usize) {
     let bytes = data.encode::<u64>().unwrap();
-    let sectors = (bytes.len() + SECTOR_SIZE_U - 1) / SECTOR_SIZE_U;
+    let sectors = (bytes.len() + BLOCK_SIZE - 1) / BLOCK_SIZE;
     let mut raw = Vec::with_capacity(sectors as usize);
 
     let mut bytes_processed = 0;
     for _ in 0..sectors {
-        let mut sector = [0u8; SECTOR_SIZE_U];
-        let bytes_to_copy = (bytes.len() - bytes_processed).min(SECTOR_SIZE_U);
+        let mut sector = [0u8; BLOCK_SIZE];
+        let bytes_to_copy = (bytes.len() - bytes_processed).min(BLOCK_SIZE);
         copy_offset(&bytes, &mut sector, bytes_to_copy, bytes_processed, 0);
         bytes_processed += bytes_to_copy;
         raw.push(sector);
     }
-    (raw, bytes.len() as u64)
+    (raw, bytes.len() as usize)
 }
 
-pub fn dir_data_from_raw(raw: &Vec<[u8; SECTOR_SIZE_U]>, size: u64) -> DirData {
+pub fn dir_data_from_raw(raw: &Vec<[u8; BLOCK_SIZE]>, size: usize) -> DirData {
     let size = size as usize;
     let raw: Vec<u8> = raw.iter().flat_map(|sector| sector.iter()).map(|v| *v).collect();
     let data = DirData::decode::<u64>(&raw[..size]).unwrap();

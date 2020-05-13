@@ -1,7 +1,6 @@
 extern crate alloc;
 
-use alloc::{string::{String, ToString}, vec, vec::Vec, boxed::Box};
-use core::ops::{Deref, DerefMut};
+use alloc::vec::Vec;
 pub use dep::fs::*;
 
 use crate::error::*;
@@ -21,9 +20,9 @@ pub trait BaseFileSystem {
 pub trait MountedFileSystem<D: BlockDevice<BS>, const BS: usize> 
 where Self: Sized {
     /// mounts a BlockDevice 
-    fn mount(device: D) -> FsResult<Self>;
+    fn mount(device: D) -> Result<Self, D>;
     /// formats the given BlockDevice with the File System
-    fn format(device: D) -> FsResult<Self>;
+    fn format(device: D) -> Result<Self, D>;
 }
 
 /// Functions for a file system that supports reading files
