@@ -169,7 +169,7 @@ impl RootFileSystem {
     }
 
     pub fn read_dir(&mut self, path: Path) -> FsResult<Vec<Filename>> {
-        self.apply_to_suitable_fs(path, |fs, path| fs.read_dir(path))
+        self.apply_to_suitable_fs(path, |fs, path| fs.inner_fs_mut().read_dir(path))
     }
 
     pub fn write(&mut self, fd: i64, buffer: &[u8]) -> FsResult<()> {
@@ -209,27 +209,27 @@ impl RootFileSystem {
     }
 
     pub fn delete(&mut self, path: Path) -> FsResult<()> {
-        self.apply_to_suitable_fs(path, |fs, path| fs.delete(path))
+        self.apply_to_suitable_fs(path, |fs, path| fs.inner_fs_mut().delete(path))
     }
 
     pub fn clear(&mut self, path: Path) -> FsResult<()> {
-        self.apply_to_suitable_fs(path, |fs, path| fs.clear(path))
+        self.apply_to_suitable_fs(path, |fs, path| fs.inner_fs_mut().clear(path))
     }
 
     pub fn create_file(&mut self, path: Path) -> FsResult<()> {
-        self.apply_to_suitable_fs(path, |fs, path| fs.create_file(path))
+        self.apply_to_suitable_fs(path, |fs, path| fs.inner_fs_mut().create_file(path))
     }
 
     pub fn create_dir(&mut self, path: Path) -> FsResult<()> {
-        self.apply_to_suitable_fs(path, |fs, path| fs.create_dir(path))
+        self.apply_to_suitable_fs(path, |fs, path| fs.inner_fs_mut().create_dir(path))
     }
 
     pub fn exists_dir(&mut self, path: Path) -> FsResult<bool> {
-        self.apply_to_suitable_fs(path, |fs, path| fs.exists_dir(path))
+        self.apply_to_suitable_fs(path, |fs, path| fs.inner_fs_mut().exists_dir(path))
     }
 
     pub fn exists_file(&mut self, path: Path) -> FsResult<bool> {
-        self.apply_to_suitable_fs(path, |fs, path| fs.exists_file(path))
+        self.apply_to_suitable_fs(path, |fs, path| fs.inner_fs_mut().exists_file(path))
     }
 
     /// finds the suitable mounted file system and applies a function at the given path
@@ -268,14 +268,11 @@ trait Mounted {
     fn read(&mut self, fd: i64, buffer: &mut [u8]) -> FsResult<usize>;
     fn write(&mut self, fd: i64, buffer: &[u8]) -> FsResult<()>;
     fn seek(&mut self, fd: i64, seek: usize) -> FsResult<()>;
-    fn read_dir(&mut self, path: Path) -> FsResult<Vec<Filename>>;
-    fn delete(&mut self, path: Path) -> FsResult<()>;
-    fn clear(&mut self, path: Path) -> FsResult<()>;
-    fn create_file(&mut self, path: Path) -> FsResult<()>;
-    fn create_dir(&mut self, path: Path) -> FsResult<()>;
-    fn exists_file(&mut self, path: Path) -> FsResult<bool>;
-    fn exists_dir(&mut self, path: Path) -> FsResult<bool>;
+    fn inner_fs_mut(&mut self) -> Box<&mut dyn NonGenericFileSystem>;
 }
+
+trait NonGenericFileSystem: BaseFileSystem + ManageFileSystem {}
+impl<FS> NonGenericFileSystem for FS where FS: BaseFileSystem + ManageFileSystem {}
 
 struct MountedFileSystem<T: FunctionalFileSystem> {
     fs: T,
@@ -299,7 +296,7 @@ fn no_such_fd<T>() -> FsResult<T> {
     Err(FsError::IllegalOperation("This file descriptor does not exist".to_string()))
 }
 
-impl<T: FunctionalFileSystem> Mounted for MountedFileSystem<T> {
+impl<T: 'static + FunctionalFileSystem> Mounted for MountedFileSystem<T> {
     fn mount_point(&mut self) -> &mut Path {
         &mut self.mount_point
     }
@@ -339,32 +336,8 @@ impl<T: FunctionalFileSystem> Mounted for MountedFileSystem<T> {
         }
     }
 
-    fn read_dir(&mut self, path: Path) -> FsResult<Vec<Filename>> {
-        self.fs.read_dir(path)
-    }
-
-    fn delete(&mut self, path: Path) -> FsResult<()> {
-        self.fs.delete(path)
-    }
-
-    fn clear(&mut self, path: Path) -> FsResult<()> {
-        self.fs.clear(path)
-    }
-
-    fn create_file(&mut self, path: Path) -> FsResult<()> {
-        self.fs.create_file(path)
-    }
-
-    fn create_dir(&mut self, path: Path) -> FsResult<()> {
-        self.fs.create_dir(path)
-    }
-
-    fn exists_dir(&mut self, path: Path) -> FsResult<bool> {
-        self.fs.exists_dir(path)
-    }
-
-    fn exists_file(&mut self, path: Path) -> FsResult<bool> {
-        self.fs.exists_file(path)
+    fn inner_fs_mut(&mut self) -> Box<&mut dyn NonGenericFileSystem> {
+        Box::new(&mut self.fs)
     }
 }
 
