@@ -9,6 +9,10 @@ pub mod memory_devices;
 pub mod filesystem;
 pub mod ffat;
 
+pub mod path {
+    pub use dep::fs::Path;
+}
+
 /// Blanket trait that is implemented for every `Sized` type.
 /// It allows for an easy conversion from a fixed size type to a slice of `u8`.
 pub trait AsU8Slice: Sized {

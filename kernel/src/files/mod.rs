@@ -7,7 +7,11 @@ use crate::{print, fs::{*, ffat::*}};
 use core::ops::DerefMut;
 use core::marker::*;
 
-use fs::*;
+use fs::error::*;
+use fs::filesystem::*;
+use fs::block::*;
+use fs::memory_devices::*;
+use fs::path::Path;
 
 
 static DISK_IMAGE: &'static [u8] = include_bytes!("../../../disk.img");
@@ -27,13 +31,18 @@ pub fn fs() -> impl DerefMut<Target = RootFileSystem> {
     // does not persist accross reboots
     unsafe {
         FS.call_once(|| { 
-            let mut img = vec![[0u8; 4096]; DISK_IMAGE.len() / 4096];
+            let mut img = vec![0u8; DISK_IMAGE.len()];
             for i in 0..img.len() {
-                for k in 0..4096 {
-                    img[i][k] = DISK_IMAGE[4096*i+k];
-                }
+                img[i] = DISK_IMAGE[i];
             }
-            let ffat = FFAT::mount(OwnedDisk::new(img)).unwrap();
+            use fs::filesystem::*;
+            let ffat = {
+                if let Ok(ffat) = FFAT::mount(OwnedDisk{ data: img }) {
+                    ffat
+                } else {
+                    panic!("could not mount disk")
+                }
+            };
             let mut rfs = RootFileSystem::new();
             if let Err(fs) = rfs.mount(ffat, Path::root()) {
                 print!("failed to mount ffat\n");
@@ -104,8 +113,10 @@ impl RootFileSystem {
 
     /// mounts a file system at a given path or fails if
     /// the mount directory has conflicting entries
-    pub fn mount<T> (&mut self, mut fs: T, mount_point: Path) -> Result<(), T>
-    where T: 'static + FileSystem<'static> {
+    pub fn mount<T, B, const BS: usize> (&mut self, mut fs: T, mount_point: Path) -> Result<(), T>
+    where T: 'static + CompleteFileSystem<B, BS>,
+          B: 'static + RWBlockDevice<BS>
+    {
         if mount_point.is_root() && self.mount_count() == 0 {
             self.file_systems.push(Some(Box::new(MountedFileSystem::new(fs, mount_point))));
             Ok(())
@@ -267,24 +278,24 @@ trait Mounted {
     fn exists_dir(&mut self, path: Path) -> FsResult<bool>;
 }
 
-struct MountedFileSystem<'a, T>
-where T: FileSystem<'a> {
+struct MountedFileSystem<T, B, const BS: usize>
+where T: CompleteFileSystem<B, BS>, B: RWBlockDevice<BS> {
     fs: T,
     mount_point: Path,
     files_read: BTreeMap<i64, T::ReadProgress>,
     files_write: BTreeMap<i64, T::WriteProgress>,
-    _phantom: &'a PhantomData<T>,
+    _phantom: PhantomData<B>,
 }
 
-impl<'a, T> MountedFileSystem<'a, T>
-where T: FileSystem<'a> {
+impl<T, B, const BS: usize> MountedFileSystem<T, B, BS>
+where T: CompleteFileSystem<B, BS>, B: RWBlockDevice<BS> {
     fn new(fs: T, mount_point: Path) -> Self {
         Self {
             fs,
             mount_point,
             files_read: BTreeMap::new(),
             files_write: BTreeMap::new(),
-            _phantom: &PhantomData,
+            _phantom: PhantomData,
         }
     }
 }
@@ -293,8 +304,8 @@ fn no_such_fd<T>() -> FsResult<T> {
     Err(FsError::IllegalOperation("This file descriptor does not exist".to_string()))
 }
 
-impl<'a, T> Mounted for MountedFileSystem<'a, T>
-where T: FileSystem<'a> {
+impl<T, B, const BS: usize> Mounted for MountedFileSystem<T, B, BS>
+where T: CompleteFileSystem<B, BS>, B: RWBlockDevice<BS> {
     fn mount_point(&mut self) -> &mut Path {
         &mut self.mount_point
     }

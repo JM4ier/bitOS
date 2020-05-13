@@ -5,6 +5,7 @@
 #![feature(abi_x86_interrupt)]
 #![feature(ptr_internals)]
 #![feature(global_asm, llvm_asm)]
+#![feature(const_generics)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 

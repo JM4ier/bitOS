@@ -61,3 +61,14 @@ pub trait ManageFileSystem {
     fn create_dir(&mut self,  path: Path) -> FsResult<()>;
 }
 
+pub trait CompleteFileSystem<D: BlockDevice<BS>, const BS: usize> : 
+    BaseFileSystem +
+    MountedFileSystem<D, BS> +
+    ReadFileSystem +
+    WriteFileSystem +
+    ManageFileSystem 
+{}
+
+impl<FS, D, const BS: usize> CompleteFileSystem<D, BS> for FS
+where D: BlockDevice<BS>, FS: BaseFileSystem + MountedFileSystem<D, BS> + ReadFileSystem + WriteFileSystem + ManageFileSystem
+{}

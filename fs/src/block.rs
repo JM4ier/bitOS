@@ -23,6 +23,10 @@ pub trait WriteBlockDevice<const BS: usize> : BlockDevice<BS> {
 
 pub trait RWBlockDevice<const BS: usize> : ReadBlockDevice<BS> + WriteBlockDevice<BS> {}
 
+impl<D, const BS: usize> RWBlockDevice<BS> for D
+where D: ReadBlockDevice<BS> + WriteBlockDevice<BS>
+{}
+
 pub fn check_args<D: BlockDevice<BS>, const BS: usize>(device: &D, buffer: &[u8], index: usize) -> FsResult<()> {
     if buffer.len() != BS {
         Err(FsError::InternalError("invalid buffer size".to_string()))
