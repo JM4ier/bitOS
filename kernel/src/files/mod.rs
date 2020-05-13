@@ -113,9 +113,8 @@ impl RootFileSystem {
 
     /// mounts a file system at a given path or fails if
     /// the mount directory has conflicting entries
-    pub fn mount<T, B, const BS: usize> (&mut self, mut fs: T, mount_point: Path) -> Result<(), T>
-    where T: 'static + CompleteFileSystem<B, BS>,
-          B: 'static + RWBlockDevice<BS>
+    pub fn mount<T> (&mut self, mut fs: T, mount_point: Path) -> Result<(), T>
+    where T: 'static + FunctionalFileSystem
     {
         if mount_point.is_root() && self.mount_count() == 0 {
             self.file_systems.push(Some(Box::new(MountedFileSystem::new(fs, mount_point))));
@@ -278,24 +277,20 @@ trait Mounted {
     fn exists_dir(&mut self, path: Path) -> FsResult<bool>;
 }
 
-struct MountedFileSystem<T, B, const BS: usize>
-where T: CompleteFileSystem<B, BS>, B: RWBlockDevice<BS> {
+struct MountedFileSystem<T: FunctionalFileSystem> {
     fs: T,
     mount_point: Path,
     files_read: BTreeMap<i64, T::ReadProgress>,
     files_write: BTreeMap<i64, T::WriteProgress>,
-    _phantom: PhantomData<B>,
 }
 
-impl<T, B, const BS: usize> MountedFileSystem<T, B, BS>
-where T: CompleteFileSystem<B, BS>, B: RWBlockDevice<BS> {
+impl<T: FunctionalFileSystem> MountedFileSystem<T> {
     fn new(fs: T, mount_point: Path) -> Self {
         Self {
             fs,
             mount_point,
             files_read: BTreeMap::new(),
             files_write: BTreeMap::new(),
-            _phantom: PhantomData,
         }
     }
 }
@@ -304,8 +299,7 @@ fn no_such_fd<T>() -> FsResult<T> {
     Err(FsError::IllegalOperation("This file descriptor does not exist".to_string()))
 }
 
-impl<T, B, const BS: usize> Mounted for MountedFileSystem<T, B, BS>
-where T: CompleteFileSystem<B, BS>, B: RWBlockDevice<BS> {
+impl<T: FunctionalFileSystem> Mounted for MountedFileSystem<T> {
     fn mount_point(&mut self) -> &mut Path {
         &mut self.mount_point
     }
