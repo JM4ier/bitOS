@@ -13,6 +13,7 @@ use fs::block::*;
 use fs::memory_devices::*;
 use fs::path::Path;
 
+pub mod virt;
 
 static DISK_IMAGE: &'static [u8] = include_bytes!("../../../disk.img");
 
