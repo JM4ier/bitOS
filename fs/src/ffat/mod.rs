@@ -1,6 +1,7 @@
 extern crate alloc;
 use alloc::vec::*;
 use alloc::string::*;
+use alloc::boxed::*;
 use alloc::*;
 
 use crate::error::*;
@@ -14,20 +15,26 @@ use structs::*;
 pub const BLOCK_SIZE: usize = 4096;
 const FAT_ENTRIES_PER_SECTOR: usize = BLOCK_SIZE / 32;
 
-pub struct FFAT<B> {
-    dev: B,
+pub struct FFAT<B: ?Sized + BlockDevice> {
+    dev: Box<B>,
 }
 
-impl<B> MountedFileSystem<B, 4096> for FFAT<B>
-where B: RWBlockDevice<4096>
-{
-    fn mount(dev: B) -> Result<Self, B> {
+impl<B: ?Sized + RWBlockDevice> MountedFileSystem<B> for FFAT<B> {
+    fn name() -> &'static str {
+        "FFAT v0.1"
+    }
+
+    fn inner(self) -> Box<B> {
+        self.dev
+    }
+
+    fn mount(dev: Box<B>) -> Result<Self, Box<B>> {
         Ok(Self {
             dev: dev,
         })
     }
 
-    fn format(dev: B) -> Result<Self, B> {
+    fn format(dev: Box<B>) -> Result<Self, Box<B>> {
         if dev.blocks() < 8 {
             return Err(dev);
         }
@@ -119,7 +126,7 @@ where B: RWBlockDevice<4096>
 }
 
 impl<B> BaseFileSystem for FFAT<B>
-where B: ReadBlockDevice<4096>
+where B: ?Sized + ReadBlockDevice
 {
     fn read_dir(&self, path: Path) -> FsResult<Vec<Filename>> {
         let addr = self.walk(&path)?;
@@ -138,7 +145,7 @@ where B: ReadBlockDevice<4096>
 }
 
 impl<B> ReadFileSystem for FFAT<B>
-where B: ReadBlockDevice<4096>
+where B: ?Sized + ReadBlockDevice
 {
     type ReadProgress = structs::ReadProgress;
 
@@ -200,7 +207,7 @@ where B: ReadBlockDevice<4096>
 }
 
 impl<B> WriteFileSystem for FFAT<B>
-where B: RWBlockDevice<4096>
+where B: ?Sized + RWBlockDevice
 {
     type WriteProgress = structs::WriteProgress;
 
@@ -265,7 +272,7 @@ where B: RWBlockDevice<4096>
 }
 
 impl<B> ManageFileSystem for FFAT<B> 
-where B: RWBlockDevice<4096> {
+where B: ?Sized + RWBlockDevice {
 
     fn create_file(&mut self, path: Path) -> FsResult<()> {
         let meta = Sector {
@@ -358,7 +365,7 @@ where B: RWBlockDevice<4096> {
 }
 
 impl<B> FFAT<B>
-where B: ReadBlockDevice<4096> {
+where B: ?Sized + ReadBlockDevice {
     fn read_sector_meta(&self, addr: usize) -> FsResult<Sector> {
         if let Some((table_addr, table_idx)) = self.sector_to_table_location(addr) {
             let mut table = AllocationTable::default();
@@ -487,8 +494,7 @@ where B: ReadBlockDevice<4096> {
 }
 
 impl<B> FFAT<B>
-where B: RWBlockDevice<4096>
-{
+where B: ?Sized + RWBlockDevice {
     fn write_sector_meta(&mut self, addr: usize, meta: Sector) -> FsResult<()> {
         if let Some((table_addr, table_idx)) = self.sector_to_table_location(addr) {
             let mut table = AllocationTable::default();

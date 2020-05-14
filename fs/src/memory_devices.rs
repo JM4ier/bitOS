@@ -20,16 +20,20 @@ pub struct OwnedDisk {
 
 macro_rules! impl_read_block {
     ($type: ty) => (
-        impl<const BS: usize> BlockDevice<BS> for $type {
+        impl BlockDevice for $type {
+            fn block_size(&self) -> usize {
+                4096
+            }
             fn blocks(&self) -> usize {
-                self.data.len() / BS
+                self.data.len() / self.block_size()
             }
         }
-        impl<const BS: usize> ReadBlockDevice<BS> for $type {
+        impl ReadBlockDevice for $type {
             fn read_block(&self, index: usize, buffer: &mut [u8]) -> FsResult<()> {
-                check_args::<$type, BS>(self, buffer, index)?;
-                let begin = BS * index;
-                copy_offset(&self.data, buffer, BS, begin, 0);
+                check_args::<$type>(self, buffer, index)?;
+                let bs = self.block_size();
+                let begin = bs * index;
+                copy_offset(&self.data, buffer, bs, begin, 0);
                 Ok(())
             }
         }
@@ -38,11 +42,12 @@ macro_rules! impl_read_block {
 
 macro_rules! impl_write_block {
     ($type: ty) => (
-        impl<const BS: usize> WriteBlockDevice<BS> for $type {
+        impl WriteBlockDevice for $type {
             fn write_block(&mut self, index: usize, buffer: &[u8]) -> FsResult<()> {
-                check_args::<$type, BS>(self, buffer, index)?;
-                let begin = BS * index;
-                copy_offset(buffer, &mut self.data, BS, 0, begin);
+                check_args::<$type>(self, buffer, index)?;
+                let bs = self.block_size();
+                let begin = bs * index;
+                copy_offset(buffer, &mut self.data, bs, 0, begin);
                 Ok(())
             }
         }

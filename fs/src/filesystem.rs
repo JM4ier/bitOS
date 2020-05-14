@@ -1,6 +1,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 pub use dep::fs::*;
 
 use crate::error::*;
@@ -17,19 +18,23 @@ pub trait BaseFileSystem {
 }
 
 /// Functions for a file system that can be mounted
-pub trait MountedFileSystem<D: BlockDevice<BS>, const BS: usize> 
+pub trait MountedFileSystem<B: ?Sized + RWBlockDevice>
 where Self: Sized {
+    /// name of the file system
+    fn name() -> &'static str;
     /// mounts a BlockDevice 
-    fn mount(device: D) -> Result<Self, D>;
+    fn mount(device: Box<B>) -> Result<Self, Box<B>>;
     /// formats the given BlockDevice with the File System
-    fn format(device: D) -> Result<Self, D>;
+    fn format(device: Box<B>) -> Result<Self, Box<B>>;
+    /// returns the mounted `BlockDevice`
+    fn inner(self) -> Box<B>;
 }
 
 /// Functions for a file system that supports reading files
 pub trait ReadFileSystem {
     /// progress how far a file has been read, used as a handle to repeatedly read from the same
     /// file
-    type ReadProgress;
+    type ReadProgress: Send;
     /// opens a file and returns a progress handle to that file
     fn open_read(&self, path: Path) -> FsResult<Self::ReadProgress>;
     /// reads from a file using the progress handle
@@ -42,7 +47,7 @@ pub trait ReadFileSystem {
 pub trait WriteFileSystem {
     /// progress how far a file has been written, used as a handle to repeatedly write to the same
     /// file
-    type WriteProgress;
+    type WriteProgress: Send;
     /// opens a file and returns a write handle to that file
     fn open_write(&mut self, path: Path) -> FsResult<Self::WriteProgress>;
     /// writes to a file and updates the progress
@@ -64,6 +69,6 @@ pub trait ManageFileSystem {
 pub trait FunctionalFileSystem : BaseFileSystem + ReadFileSystem + WriteFileSystem + ManageFileSystem {}
 impl<FS> FunctionalFileSystem for FS where FS: BaseFileSystem + ReadFileSystem + WriteFileSystem + ManageFileSystem {}
 
-pub trait CompleteFileSystem<D: BlockDevice<BS>, const BS: usize> : FunctionalFileSystem + MountedFileSystem<D, BS> {}
-impl<FS, D, const BS: usize> CompleteFileSystem<D, BS> for FS where FS: FunctionalFileSystem + MountedFileSystem<D, BS>, D: BlockDevice<BS> {}
+pub trait CompleteFileSystem<B> : FunctionalFileSystem + MountedFileSystem<B> where B: ?Sized + RWBlockDevice {}
+impl<FS, B> CompleteFileSystem<B> for FS where FS: FunctionalFileSystem + MountedFileSystem<B>, B: ?Sized + RWBlockDevice {}
 

@@ -5,7 +5,9 @@ use std::fs as std_fs;
 use std::path as std_path;
 
 use bit_fs::filesystem::*;
+use bit_fs::block::*;
 use bit_fs::memory_devices::*;
+use bit_fs::ffat::*;
 use std::io::{Read, Write};
 
 use clap::{Arg, App};
@@ -38,7 +40,7 @@ fn main() {
     let mut disk = vec![0u8; 4096 * size];
     let ram_disk = RamDisk{ data: &mut disk };
     let mut fat = {
-        if let Ok(fat) = bit_fs::ffat::FFAT::format(ram_disk) {
+        if let Ok(fat) = FFAT::format(Box::new(ram_disk)) {
             fat
         } else {
             panic!("could not format ram disk")
@@ -61,8 +63,8 @@ fn main() {
     }
 }
 
-fn create_image<'a, FS, D, const BS: usize>(disk: &mut FS, path: &std_path::Path, disk_path: bit_fs::path::Path)
-where FS: CompleteFileSystem<D, BS>, D: bit_fs::block::BlockDevice<BS> {
+fn create_image<FS, B>(disk: &mut FS, path: &std_path::Path, disk_path: bit_fs::path::Path)
+where FS: CompleteFileSystem<B>, B: ?Sized + RWBlockDevice {
     if !disk_path.is_root() {
         // write fs entry
         if path.is_dir() {
