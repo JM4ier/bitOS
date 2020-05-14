@@ -9,7 +9,7 @@ use fs::error::*;
 use fs::filesystem::*;
 use fs::path::*;
 
-pub type VirtualFile = Box<RwLock<dyn Fn() -> Vec<u8>>>;
+pub type VirtualFile = Box<RwLock<dyn Fn() -> Vec<u8> + Send>>;
 
 enum Entry {
     Directory(VirtualFileSystem),
@@ -46,7 +46,7 @@ impl VirtualFileSystem {
     }
 
     pub fn register_file<F>(&self, path: Path, file: F) -> Result<(), ()> 
-        where F: 'static + Fn() -> Vec<u8> 
+        where F: 'static + Fn() -> Vec<u8> + Send
     {
         let (head, tail) = path.head_tail();
         let head = match head {
@@ -140,7 +140,7 @@ impl ReadFileSystem for VirtualFileSystem {
     }
 
     fn seek(&self, progress: &mut Self::ReadProgress, seeking: usize) -> FsResult<()> {
-        *progress.0 += seeking;
+        progress.0 += seeking;
         Ok(())
     }
 }
