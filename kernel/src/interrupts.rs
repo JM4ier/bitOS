@@ -1,4 +1,4 @@
-use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
+use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, HandlerFunc};
 use crate::{print, println};
 use lazy_static::lazy_static;
 use crate::gdt;
@@ -13,7 +13,7 @@ lazy_static! {
         unsafe {
             idt.double_fault.set_handler_fn(double_fault_handler)
                 .set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
-        }
+            }
         idt[InterruptIndex::Timer.as_usize()]
             .set_handler_fn(timer_interrupt_handler);
         idt[InterruptIndex::Keyboard.as_usize()]
@@ -37,6 +37,13 @@ lazy_static! {
         idt.simd_floating_point.set_handler_fn(simd_floating_point_handler);
         idt.virtualization.set_handler_fn(virtualization_handler);
         idt.security_exception.set_handler_fn(security_exception_handler);
+        unsafe {
+            idt[0x80].set_handler_fn(
+                *(&(syscall_handler as unsafe extern "C" fn())
+                    as *const unsafe extern "C" fn()
+                    as u64 as *const HandlerFunc)
+            );
+        }
         idt
     };
 }
@@ -44,6 +51,11 @@ lazy_static! {
 pub fn init_idt() {
     IDT.load();
 }
+
+extern "C" {
+    pub fn syscall_handler();
+}
+global_asm!(include_str!("syscall_handler.s"));
 
 extern "x86-interrupt" fn divide_by_zero_handler (stack_frame: &mut InterruptStackFrame) {
     println!("EXCEPTION: DIVIDED BY ZERO\n{:#?}", stack_frame);
@@ -162,10 +174,11 @@ impl InterruptIndex {
     }
 }
 
+use crate::process;
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: &mut InterruptStackFrame) {
-    // print!(".");
     unsafe {
         PICS.lock().notify_end_of_interrupt(InterruptIndex::Timer.as_u8());
+        process::update();
     }
 }
 

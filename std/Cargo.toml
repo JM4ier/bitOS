@@ -1,5 +1,5 @@
 [package]
-name = "bit_std"
+name = "bstd"
 version = "0.1.0"
 authors = ["Jonas Maier <1.jmaier.3@gmail.com>"]
 edition = "2018"
@@ -7,3 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+dep = { path = "../dep" }
+linked_list_allocator = "0.8.3"
+spin = "0.5.2"
+

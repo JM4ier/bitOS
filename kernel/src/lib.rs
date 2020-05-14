@@ -4,26 +4,32 @@
 #![feature(alloc_error_handler)]
 #![feature(abi_x86_interrupt)]
 #![feature(ptr_internals)]
+#![feature(global_asm, llvm_asm)]
+#![feature(const_generics)]
+#![feature(core_intrinsics)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
 // linting
 #![forbid(unused_must_use)]
 #![allow(dead_code)]
+//#![allow(unused_imports)]
 
 extern crate alloc;
 pub extern crate fs;
 
 use core::panic::PanicInfo;
-use linked_list_allocator::LockedHeap;
 
 pub mod serial;
 pub mod vga_buffer;
 pub mod interrupts;
 pub mod gdt;
 pub mod memory;
-pub mod allocator;
 pub mod files;
+pub mod syscall;
+pub mod elf;
+pub mod process;
+
 
 #[cfg(test)]
 use bootloader::{entry_point, BootInfo};
@@ -72,8 +78,6 @@ pub fn exit_qemu(exit_code: QemuExitCode) {
     }
 }
 
-#[global_allocator]
-static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 #[alloc_error_handler]
 fn alloc_error_handler(layout: alloc::alloc::Layout) -> ! {

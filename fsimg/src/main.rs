@@ -1,8 +1,13 @@
+#![feature(const_generics)]
+
 use fs as bit_fs;
 use std::fs as std_fs;
 use std::path as std_path;
 
-use bit_fs::FileSystem;
+use bit_fs::filesystem::*;
+use bit_fs::block::*;
+use bit_fs::memory_devices::*;
+use bit_fs::ffat::*;
 use std::io::{Read, Write};
 
 use clap::{Arg, App};
@@ -32,26 +37,34 @@ fn main() {
     assert!(path.exists());
     assert!(path.is_dir());
 
-    let mut blocks = vec![[0u8; 4096]; size];
-    let ram_disk = bit_fs::RamDisk::new(&mut blocks);
-    let mut fat = bit_fs::ffat::FFAT::format(ram_disk).unwrap();
+    let mut disk = vec![0u8; 4096 * size];
+    let ram_disk = RamDisk{ data: &mut disk };
+    let mut fat = {
+        if let Ok(fat) = FFAT::format(Box::new(ram_disk)) {
+            fat
+        } else {
+            panic!("could not format ram disk")
+        }
+    };
 
-    create_image(&mut fat, path, bit_fs::Path::from_str::<bit_fs::ffat::FFAT<bit_fs::RamDisk>, bit_fs::RamDisk>("/").unwrap());
+    create_image(&mut fat, path, bit_fs::path::Path::from_str("/").unwrap());
 
     let mut image_file = std_fs::File::create(binary).unwrap();
 
+    drop(fat);
+
     // write fs to image file
-    for block in blocks {
+    {
         let mut pos = 0;
-        while pos < block.len() {
-            let bytes_written = image_file.write(&block[pos..]).unwrap();
+        while pos < disk.len() {
+            let bytes_written = image_file.write(&disk[pos..]).unwrap();
             pos += bytes_written;
         }
     }
 }
 
-fn create_image<B, FS>(disk: &mut FS, path: &std_path::Path, disk_path: bit_fs::Path)
-where B: bit_fs::BlockDevice, FS: bit_fs::FileSystem<B> {
+fn create_image<FS, B>(disk: &mut FS, path: &std_path::Path, disk_path: bit_fs::path::Path)
+where FS: CompleteFileSystem<B>, B: ?Sized + RWBlockDevice {
     if !disk_path.is_root() {
         // write fs entry
         if path.is_dir() {

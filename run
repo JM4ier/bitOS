@@ -1,16 +1,21 @@
-#! /bin/sh
+#! /bin/bash
 
-# create the disk.img for the kernel's ramfs
-cargo install --path fsimg
-fsimg --directory base --image disk.img
+# change directory to script location
+cd "$(dirname "$0")"
 
+# some vars
+project="$(pwd)"
+target_name="x86_64-bit_os"
+target=$project/$target_name.json
 
-
-cd kernel
-
-# Build the kernel
-cargo xbuild
+# Build everyhing
+./build
+if [ $? -ne 0 ]; then
+	echo "failed build"
+	exit
+fi
 
 # Run the kernel
-bootimage run -- -m 1G
+cd $project/kernel
+bootimage run --target $target -- -m 1G -serial stdio || echo "failed to run kernel"
 

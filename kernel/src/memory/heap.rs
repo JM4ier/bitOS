@@ -1,6 +1,6 @@
 use x86_64::{
     structures::paging::{
-        mapper::MapToError, FrameAllocator, Mapper, Page, PageTableFlags, Size4KiB,
+        mapper::MapToError, FrameAllocator, Mapper, Page, PageTableFlags,
     },
     VirtAddr,
 };
@@ -8,10 +8,15 @@ use x86_64::{
 pub const HEAP_START: usize = 0x4444_4444_0000;
 pub const HEAP_SIZE: usize = 128 * 1024 * 1024; // 128M
 
-pub fn init_mem(
-    mapper: &mut impl Mapper<Size4KiB>,
-    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
-    ) -> Result<(), MapToError> {
+use linked_list_allocator::LockedHeap;
+
+#[global_allocator]
+static HEAP: LockedHeap = LockedHeap::empty();
+
+pub fn init_heap() -> Result<(), MapToError> {
+    let mut mapper = unsafe { super::mapper() };
+    let mut frame_allocator = super::allocator();
+
     let page_range = {
         let heap_start = VirtAddr::new(HEAP_START as u64);
         let heap_end = heap_start + HEAP_SIZE - 1u64;
@@ -25,13 +30,13 @@ pub fn init_mem(
         for page in page_range {
             let frame = frame_allocator.allocate_frame()
                 .ok_or(MapToError::FrameAllocationFailed)?;
-            mapper.map_to(page, frame, flags, frame_allocator)?.flush();
+            mapper.map_to(page, frame, flags, &mut *frame_allocator)?.flush();
         }
     }
 
 
     unsafe {
-        super::ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE);
+        HEAP.lock().init(HEAP_START, HEAP_SIZE);
     }
 
     Ok(())

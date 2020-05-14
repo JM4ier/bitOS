@@ -1,0 +1,19 @@
+pub const MAX_ADDR: u64 = 0xffff_ffff_ffff_ffff;
+pub const MAX_LOWER_ADDR: u64 = 0x7fff_ffff_ffff;
+pub const P4_ENTRY_SIZE: u64 = 0x80_0000_0000;
+pub const PAGE_SIZE: u64 = 0x1000;
+
+pub const KERNEL_START: u64 = MAX_LOWER_ADDR - P4_ENTRY_SIZE * 32 + 1;
+
+pub const KERNEL_SYSCALL_STACK_TOP: u64 = KERNEL_START + KERNEL_SYSCALL_STACK_SIZE - 1;
+pub const KERNEL_SYSCALL_STACK_SIZE: u64 = 0x10_0000;
+
+pub const KERNEL_PAGETABLES_START: u64 = KERNEL_SYSCALL_STACK_TOP + 1;
+pub const KERNEL_PAGETABLES_SIZE: u64 = 0x1000 * PAGE_SIZE; // enough for 4096 processes
+
+pub const USER_STACK_TOP: u64 = MAX_ADDR - P4_ENTRY_SIZE;
+pub const USER_STACK_SIZE: u64 = 0x100_0000;
+
+pub const USER_HEAP_SIZE: u64 = 0x100_0000;
+pub const USER_HEAP_START: u64 = USER_STACK_TOP - USER_STACK_SIZE - USER_HEAP_SIZE - 0x10 * PAGE_SIZE + 1;
+
