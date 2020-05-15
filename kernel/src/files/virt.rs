@@ -11,12 +11,24 @@ use fs::path::*;
 
 pub type VirtualFile = Box<RwLock<dyn Fn() -> Vec<u8> + Send>>;
 
-enum Entry {
-    Directory(VirtualFileSystem),
-    File(VirtualFile),
+enum Entry<DIR, FILE> {
+    Directory(DIR),
+    File(FILE),
 }
 
-impl Entry {
+type OwnedEntry = Entry<VirtualFileSystem, VirtualFile>;
+type RefEntry<'a> = Entry<&'a VirtualFileSystem, &'a VirtualFile>;
+
+impl OwnedEntry {
+    fn as_ref(& self) -> RefEntry<'_> {
+        match self {
+            Self::Directory(dir) => RefEntry::Directory(&dir),
+            Self::File(file) => RefEntry::File(&file),
+        }
+    }
+}
+
+impl<DIR, FILE> Entry<DIR, FILE> {
     pub fn is_dir(&self) -> bool {
         if let Self::Directory(_) = self {
             true
@@ -35,7 +47,7 @@ impl Entry {
 }
 
 pub struct VirtualFileSystem {
-    entries: RwLock<BTreeMap<Filename, Entry>>,
+    entries: RwLock<BTreeMap<Filename, OwnedEntry>>,
 }
 
 impl VirtualFileSystem {
@@ -59,7 +71,7 @@ impl VirtualFileSystem {
             if self.entries.read().contains_key(&head) {
                 return Err(());
             }
-            let file = Entry::File(Box::new(RwLock::new(file)));
+            let file = OwnedEntry::File(Box::new(RwLock::new(file)));
             self.entries.write().insert(head, file);
             Ok(())
         } else {
@@ -79,7 +91,11 @@ impl VirtualFileSystem {
         }
     }
 
-    fn find_entry<R, F: Fn(&Entry) -> R>(&self, path: Path, default: R, fun: F) -> R {
+    fn find_entry<R, F: Fn(&RefEntry) -> R>(&self, path: Path, default: R, fun: F) -> R {
+        if path.is_root() {
+            return fun(&RefEntry::Directory(self));
+        }
+
         let (head, tail) = path.head_tail();
         let head = match head {
             Some(h) => h,
@@ -89,7 +105,7 @@ impl VirtualFileSystem {
         let entries = self.entries.read();
 
         let entry = match entries.get(&head) {
-            Some(e) => e,
+            Some(e) => e.as_ref(),
             None => return default,
         };
 
@@ -104,7 +120,7 @@ impl VirtualFileSystem {
         }
     }
 
-    fn find_entry_mut<R, F: Fn(&mut Entry) -> R>(fun: F, path: Path) -> Result<R, ()> {
+    fn find_entry_mut<R, F: Fn(&mut OwnedEntry) -> R>(fun: F, path: Path) -> Result<R, ()> {
         todo!();
     }
 
@@ -144,3 +160,10 @@ impl ReadFileSystem for VirtualFileSystem {
         Ok(())
     }
 }
+
+impl WriteFileSystem for VirtualFileSystem {
+    type WriteProgress = ();
+}
+
+impl ManageFileSystem for VirtualFileSystem {}
+

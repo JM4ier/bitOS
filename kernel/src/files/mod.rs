@@ -15,6 +15,8 @@ use fs::path::Path;
 
 pub mod virt;
 
+use virt::*;
+
 static DISK_IMAGE: &'static [u8] = include_bytes!("../../../disk.img");
 
 static FS: Once<Mutex<RootFileSystem>> = Once::new();
@@ -39,6 +41,14 @@ pub fn init() {
     }
 
     mount_disk(OwnedDisk{ data: img }, Path::root()).expect("could not mount root file system");
+
+    // creating and mounting virtual file system
+    let mut vfs = VirtualFileSystem::new();
+    vfs.register_file(Path::from_str("/vfs-working").unwrap(), || b"yes".to_vec()).unwrap();
+
+    let vfs_path = Path::new("/virt/").unwrap();
+    fs().create_dir(vfs_path.clone()).unwrap();
+    fs().attach(vfs, vfs_path).map_err(|_| "could not attach virtual fs").unwrap();
 }
 
 struct MountData {
@@ -157,21 +167,25 @@ impl RootFileSystem {
             self.file_systems.push(Some(Box::new(AttachedFileSystem::new(fs, attach_point))));
             Ok(())
         } else {
-            if let Ok(fs_root_entries) = fs.read_dir(Path::root()) {
-                match self.read_dir(attach_point.clone()) {
-                    Ok(mounted_root_entries) => {
-                        for mounted_entry in mounted_root_entries {
-                            if fs_root_entries.contains(&mounted_entry) {
-                                return Err(fs);
+            match fs.read_dir(Path::root()) {
+                Ok(fs_root_entries) => {
+                    match self.read_dir(attach_point.clone()) {
+                        Ok(mounted_root_entries) => {
+                            for mounted_entry in mounted_root_entries {
+                                if fs_root_entries.contains(&mounted_entry) {
+                                    return Err(fs);
+                                }
                             }
-                        }
-                        self.file_systems.push(Some(Box::new(AttachedFileSystem::new(fs, attach_point))));
-                        Ok(())
-                    },
-                    _ => Err(fs),
+                            self.file_systems.push(Some(Box::new(AttachedFileSystem::new(fs, attach_point))));
+                            Ok(())
+                        },
+                        _ => Err(fs),
+                    }
+                },
+                Err(err) => {
+                    println!("Failed to read root entries of file system: {:?}", err);
+                    Err(fs)
                 }
-            } else {
-                Err(fs)
             }
         }
     }
